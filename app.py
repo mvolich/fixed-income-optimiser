@@ -1,10 +1,3 @@
-[theme]
-primaryColor = "#001E4F"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F6F8FB"
-textColor = "#001E4F"
-font = "sans serif"
-
 
 # Rubrics Fixed Income Optimiser (Streamlit)
 # ------------------------------------------
