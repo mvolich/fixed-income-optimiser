@@ -540,6 +540,73 @@ def heatmap_funds_losses(fund_results: dict):
     fig.update_layout(title="Scenario Distribution by Fund (Portfolio P&L percentiles)", height=300, margin=dict(l=10,r=10,t=40,b=20))
     return fig
 
+# --- Prospectus cap usage helpers -------------------------------------------
+
+def calc_cap_usage(weights: np.ndarray, tags: dict, fund_caps: dict) -> dict:
+    """
+    Returns {cap_key: {'label': str, 'used': float, 'cap': float}} with values as decimals (0..1).
+    """
+    name_map = {
+        "max_non_ig": "Non‑IG",
+        "max_em": "EM",
+        "max_hybrid": "Hybrid",
+        "max_cash": "Cash",
+        "max_at1": "AT1",
+    }
+    mask_map = {
+        "max_non_ig": tags["is_non_ig"],
+        "max_em":     tags["is_em"],
+        "max_hybrid": tags.get("is_hybrid", np.zeros_like(weights, dtype=bool)),
+        "max_cash":   tags["is_tbill"],
+        "max_at1":    tags["is_at1"],
+    }
+    out = {}
+    for k, cap in fund_caps.items():
+        if k in mask_map:
+            used = float(mask_map[k].astype(float) @ weights)  # portfolio weight in that sleeve
+            out[k] = {"label": name_map[k], "used": used, "cap": float(cap)}
+    return out
+
+
+def cap_usage_chart(usage: dict) -> go.Figure:
+    """
+    Horizontal bullet-style bars: grey = cap, blue = used. Annotates overages.
+    """
+    labels = [v["label"] for v in usage.values()]
+    used   = [v["used"] * 100 for v in usage.values()]
+    caps   = [v["cap"]  * 100 for v in usage.values()]
+    x_max = max([*(used or [0]), *(caps or [0])], default=0) * 1.15 or 1.0
+
+    fig = go.Figure()
+    # Cap (background)
+    fig.add_bar(
+        y=labels, x=caps, orientation="h", name="Cap",
+        marker=dict(color=RB_COLORS["grey"]), hovertemplate="%{x:.2f}% cap"
+    )
+    # Used
+    fig.add_bar(
+        y=labels, x=used, orientation="h", name="Used",
+        marker=dict(color=RB_COLORS["blue"]), hovertemplate="%{x:.2f}% used"
+    )
+    fig.update_traces(opacity=0.35, selector=dict(name="Cap"))
+    fig.update_layout(
+        barmode="overlay",
+        height=220,
+        margin=dict(l=10, r=10, t=40, b=20),
+        title="Prospectus cap usage",
+        xaxis_title="% of NAV",
+        xaxis=dict(range=[0, x_max])
+    )
+    # Over-cap annotations
+    for i, (u, c) in enumerate(zip(used, caps)):
+        if c == 0 and u > 0:
+            fig.add_annotation(y=labels[i], x=u, text="Cap = 0%", showarrow=False,
+                               font=dict(color=RB_COLORS["orange"]))
+        elif u > c:
+            fig.add_annotation(y=labels[i], x=u, text=f"Over by {u-c:.2f}%", showarrow=False,
+                               font=dict(color=RB_COLORS["orange"]))
+    return fig
+
 # -----------------------------
 # 5) App UI
 # -----------------------------
@@ -960,6 +1027,25 @@ with tab_fund:
         cap = var_cap
         status = "within cap" if var99 <= cap else "over cap"
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
+
+        # --- Prospectus cap usage (proposed portfolio vs caps) -----------------------
+        # Build the effective caps from the sliders shown on the left
+        fc_now = {
+            "max_non_ig": max_non_ig,
+            "max_em":     max_em,
+            "max_cash":   max_cash,
+            "max_at1":    max_at1,
+        }
+        if "max_hybrid" in FUND_CONSTRAINTS[fund]:
+            fc_now["max_hybrid"] = max_hybrid
+
+        # Calculate and render usage
+        usage = calc_cap_usage(w, tags, fc_now)
+        title_with_help(
+            "Prospectus cap usage",
+            "Bars show how much of each cap the proposed portfolio uses (blue) versus the cap (grey). If the blue bar exceeds the grey bar, the cap is breached."
+        )
+        st.plotly_chart(cap_usage_chart(usage), use_container_width=True)
 
         # Allocation
         title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
