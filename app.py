@@ -320,12 +320,16 @@ def solve_portfolio(df: pd.DataFrame,
     constraints += [cp.abs((X[:,4] * is_ig) @ w) <= fb.get("limit_sdv01_ig", 3.0)]
     constraints += [cp.abs((X[:,4] * is_hy) @ w) <= fb.get("limit_sdv01_hy", 1.5)]
 
-    # Turnover
-    if prev_w is None:
+    # Turnover: only enforce if previous weights are supplied and non-zero
+    apply_turnover = prev_w is not None and np.sum(prev_w) > 1e-8
+    if not apply_turnover:
         prev_w = np.zeros(n)
     max_turnover = params.get("max_turnover", TURNOVER_DEFAULTS["max_turnover"])
-    constraints += [cp.norm1(w - prev_w) <= max_turnover]
-    turnover_penalty = params.get("turnover_penalty", TURNOVER_DEFAULTS["penalty_bps_per_100"]) / 10000.0
+    if apply_turnover:
+        constraints += [cp.norm1(w - prev_w) <= max_turnover]
+        turnover_penalty = params.get("turnover_penalty", TURNOVER_DEFAULTS["penalty_bps_per_100"]) / 10000.0
+    else:
+        turnover_penalty = 0.0
 
     # CVaR (99%) linearisation
     S = pnl_matrix.shape[0]
