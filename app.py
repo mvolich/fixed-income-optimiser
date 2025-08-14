@@ -744,24 +744,77 @@ pnl_matrix_assets = build_asset_pnl_matrix(df, tags, mc)  # S x N
 mu_pp = df["ExpRet_pct"].values.astype(float)
 mu = mu_pp / 100.0
 
-# Helper: run optimisation for a single fund
+# Helper: run optimisation for a single fund with graceful relaxations when infeasible
 def run_fund(fund: str, objective: str, var_cap_override: float | None = None, prev_w=None):
-    params = {
-        "factor_budgets": {
-            "limit_krd10y": limit_krd10y, "limit_twist": limit_twist,
-            "limit_sdv01_ig": limit_sdv01_ig, "limit_sdv01_hy": limit_sdv01_hy
-        },
+    base_budgets = {
+        "limit_krd10y": limit_krd10y,
+        "limit_twist": limit_twist,
+        "limit_sdv01_ig": limit_sdv01_ig,
+        "limit_sdv01_hy": limit_sdv01_hy,
+    }
+    base_params = {
+        "factor_budgets": dict(base_budgets),
         "turnover_penalty": penalty_bps,
         "max_turnover": max_turn,
         "objective": objective,
-        # CVaR cap set slightly above VaR cap (iteratively tightened via UI changes)
         "cvar_cap": (var_cap_override if var_cap_override is not None else VAR99_CAP[fund] * 1.15),
     }
-    w, metrics = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params, prev_w)
-    if w is None:
-        return None, metrics, None
+
+    # Attempt sequence: (cvar multiplier, budgets multiplier, ignore_turnover)
+    attempts = [
+        (1.00, 1.00, False),
+        (1.25, 1.00, False),
+        (1.50, 1.00, False),
+        (1.75, 1.15, False),
+        (2.00, 1.25, False),
+        (2.00, 1.50, True),
+    ]
+
+    last_metrics = {"status": "INFEASIBLE", "message": "Optimiser failed to find a feasible solution."}
+    for cvar_mult, budg_mult, drop_turnover in attempts:
+        params = dict(base_params)
+        # Adjust CVaR cap
+        params["cvar_cap"] = base_params["cvar_cap"] * cvar_mult
+        # Adjust factor budgets
+        fb = dict(base_budgets)
+        for k in fb:
+            fb[k] = float(fb[k]) * budg_mult
+        params["factor_budgets"] = fb
+        # Optionally drop turnover constraint by passing no previous weights
+        prev = None if drop_turnover else prev_w
+
+        w, metrics = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params, prev)
+        if w is not None:
+            # Annotate relaxations for UX
+            relax_note = []
+            if cvar_mult != 1.0:
+                relax_note.append(f"CVaR cap x{cvar_mult:.2f}")
+            if budg_mult != 1.0:
+                relax_note.append(f"factor budgets x{budg_mult:.2f}")
+            if drop_turnover:
+                relax_note.append("ignored turnover constraint")
+            if relax_note:
+                metrics["note"] = ", ".join(relax_note)
+            port_pnl = pnl_matrix_assets @ w
+            return w, metrics, port_pnl
+        last_metrics = metrics
+
+    # Final fallback: equal weights so UI remains functional
+    n = len(df)
+    w = np.ones(n) / n
     port_pnl = pnl_matrix_assets @ w
-    return w, metrics, port_pnl
+    ew_metrics = {
+        "status": "FALLBACK_EQUAL_WEIGHTS",
+        "message": last_metrics.get("message", "Infeasible; using equal weights."),
+        "ExpRet_pct": float(mu @ w) * 100.0,
+        "Yield_pct": float(df["Yield_Hedged_Pct"].values @ w),
+        "OAD_years": float(df["OAD_Years"].values @ w),
+        "VaR99_1M": var_cvar_from_pnl(port_pnl, 0.99)[0],
+        "CVaR99_1M": var_cvar_from_pnl(port_pnl, 0.99)[1],
+        "weights": w,
+        "note": "Auto-fallback to equal weights after multiple infeasible attempts.",
+    }
+    return w, ew_metrics, port_pnl
 
 # Top-level tabs
 tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail (Tune One)"])
@@ -796,6 +849,8 @@ with tab_overview:
         if w is not None:
             metrics["weights"] = w
             fund_outputs[f] = (metrics, pnl_matrix_assets)  # keep asset pnl for heatmap
+            if metrics.get("note"):
+                st.info(f"{f}: {metrics['note']}")
         else:
             st.warning(f"{f}: {metrics.get('status','')} — {metrics.get('message','')}")
 
@@ -955,6 +1010,8 @@ with tab_fund:
 
         cap = var_cap
         status = "✅ within cap" if var99 <= cap else "❌ over cap"
+        if metrics.get("note"):
+            st.info(metrics["note"]) 
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
 
         # Allocation
