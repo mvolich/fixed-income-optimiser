@@ -491,20 +491,35 @@ def bar_allocation(df, weights, title):
     return apply_theme(fig)
 
 def exposures_vs_budgets(df, weights, budgets: dict, title: str):
+    """Overlay bars: grey = cap, blue = used (abs for KRD/Twist). Avoid hlines to make mapping clear."""
     is_ig_mask = tag_segments(df)["is_ig"]
     oasd = df["OASD_Years"].values
-    vals = {
-        "KRD 10y": float(df["KRD_10y"].values @ weights),
-        "Twist (30y–2y)": float((df["KRD_30y"].values - df["KRD_2y"].values) @ weights),
-        "sDV01 IG": float(np.sum(oasd * weights * is_ig_mask)),
-        "sDV01 HY": float(np.sum(oasd * weights * (~is_ig_mask))),
-    }
-    fig = go.Figure(go.Bar(x=list(vals.keys()), y=list(vals.values())))
-    fig.add_hline(y=budgets.get("limit_krd10y", 0.75), line_dash="dot", annotation_text="KRD10y cap", annotation_position="top left")
-    fig.add_hline(y=budgets.get("limit_twist", 0.40), line_dash="dot", annotation_text="Twist cap", annotation_position="bottom left")
-    fig.add_hline(y=budgets.get("limit_sdv01_ig", 3.0), line_dash="dot", annotation_text="sDV01 IG cap", annotation_position="bottom left")
-    fig.add_hline(y=budgets.get("limit_sdv01_hy", 1.5), line_dash="dot", annotation_text="sDV01 HY cap", annotation_position="bottom left")
-    fig.update_layout(height=300, margin=dict(l=10,r=10,t=40,b=20))
+
+    used_vals = [
+        abs(float(df["KRD_10y"].values @ weights)),
+        abs(float((df["KRD_30y"].values - df["KRD_2y"].values) @ weights)),
+        float(np.sum(oasd * weights * is_ig_mask)),
+        float(np.sum(oasd * weights * (~is_ig_mask))),
+    ]
+    cap_vals = [
+        budgets.get("limit_krd10y", 0.75),
+        budgets.get("limit_twist", 0.40),
+        budgets.get("limit_sdv01_ig", 3.0),
+        budgets.get("limit_sdv01_hy", 1.5),
+    ]
+    labels = ["KRD 10y", "Twist (30y–2y)", "sDV01 IG", "sDV01 HY"]
+
+    fig = go.Figure()
+    fig.add_bar(name="Cap", x=labels, y=cap_vals, marker_color=RB_COLORS["grey"])
+    fig.add_bar(name="Used", x=labels, y=used_vals, marker_color=RB_COLORS["blue"])
+    fig.update_traces(opacity=0.35, selector=dict(name="Cap"))
+    fig.update_layout(barmode="overlay", height=300, margin=dict(l=10,r=10,t=40,b=20), yaxis_title="Years")
+
+    # Over-cap annotations per column
+    for x_lbl, u, c in zip(labels, used_vals, cap_vals):
+        if u > c:
+            fig.add_annotation(x=x_lbl, y=u, text=f"Over by {u-c:.2f}", showarrow=False,
+                               font=dict(color=RB_COLORS["orange"]))
     return fig
 
 def scenario_histogram(port_pnl, title="Scenario P&L (1M)"):
