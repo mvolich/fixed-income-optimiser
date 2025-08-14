@@ -487,7 +487,7 @@ def kpi_number(value: float, kind: str = "pct"):
 def bar_allocation(df, weights, title):
     ser = pd.Series(weights, index=df["Name"]).sort_values(ascending=False)
     fig = go.Figure(go.Bar(x=ser.index, y=ser.values))
-    fig.update_layout(title=title, xaxis_title="Segment", yaxis_title="Weight", height=380, margin=dict(l=10,r=10,t=40,b=80))
+    fig.update_layout(xaxis_title="Segment", yaxis_title="Weight", height=380, margin=dict(l=10,r=10,t=40,b=80))
     return apply_theme(fig)
 
 def exposures_vs_budgets(df, weights, budgets: dict, title: str):
@@ -504,7 +504,7 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
     fig.add_hline(y=budgets.get("limit_twist", 0.40), line_dash="dot", annotation_text="Twist cap", annotation_position="bottom left")
     fig.add_hline(y=budgets.get("limit_sdv01_ig", 3.0), line_dash="dot", annotation_text="sDV01 IG cap", annotation_position="bottom left")
     fig.add_hline(y=budgets.get("limit_sdv01_hy", 1.5), line_dash="dot", annotation_text="sDV01 HY cap", annotation_position="bottom left")
-    fig.update_layout(title=title, height=300, margin=dict(l=10,r=10,t=40,b=20))
+    fig.update_layout(height=300, margin=dict(l=10,r=10,t=40,b=20))
     return fig
 
 def scenario_histogram(port_pnl, title="Scenario P&L (1M)"):
@@ -512,7 +512,7 @@ def scenario_histogram(port_pnl, title="Scenario P&L (1M)"):
     var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
     fig.add_vline(x=-var99 * 100, line_dash="dash", annotation_text="VaR99", annotation_position="top left")
     fig.add_vline(x=-cvar99 * 100, line_dash="dot", annotation_text="CVaR99", annotation_position="top left")
-    fig.update_layout(title=title, xaxis_title="% P&L", yaxis_title="Count", height=300, margin=dict(l=10,r=10,t=40,b=20))
+    fig.update_layout(xaxis_title="% P&L", yaxis_title="Count", height=300, margin=dict(l=10,r=10,t=40,b=20))
     return apply_theme(fig)
 
 def contributions_table(df, weights, mu):
@@ -537,7 +537,7 @@ def heatmap_funds_losses(fund_results: dict):
         rows.append([np.percentile(pnl_port, p) for p in percs])
         labels.append(f)
     fig = go.Figure(go.Heatmap(z=np.array(rows), x=[f"P{p}" for p in percs], y=labels, colorscale="RdBu", zmid=0))
-    fig.update_layout(title="Scenario Distribution by Fund (Portfolio P&L percentiles)", height=300, margin=dict(l=10,r=10,t=40,b=20))
+    fig.update_layout(height=300, margin=dict(l=10,r=10,t=40,b=20))
     return fig
 
 # --- Prospectus cap usage helpers -------------------------------------------
@@ -593,7 +593,6 @@ def cap_usage_chart(usage: dict) -> go.Figure:
         barmode="overlay",
         height=220,
         margin=dict(l=10, r=10, t=40, b=20),
-        title="Prospectus cap usage",
         xaxis_title="% of NAV",
         xaxis=dict(range=[0, x_max])
     )
