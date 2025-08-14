@@ -416,8 +416,8 @@ def solve_portfolio(df: pd.DataFrame,
         prev_w = np.zeros(n)
     max_turnover = params.get("max_turnover", TURNOVER_DEFAULTS["max_turnover"])
     if apply_turnover:
-        constraints += [cp.norm1(w - prev_w) <= max_turnover]
-        turnover_penalty = params.get("turnover_penalty", TURNOVER_DEFAULTS["penalty_bps_per_100"]) / 10000.0
+    constraints += [cp.norm1(w - prev_w) <= max_turnover]
+    turnover_penalty = params.get("turnover_penalty", TURNOVER_DEFAULTS["penalty_bps_per_100"]) / 10000.0
     else:
         turnover_penalty = 0.0
 
@@ -461,10 +461,10 @@ def solve_portfolio(df: pd.DataFrame,
         try:
             prob.solve(solver=solver, **kwargs)
             break
-        except Exception as e:
+    except Exception as e:
             solve_errors.append(f"{getattr(solver, '__name__', str(solver))}: {e}")
             continue
-    
+
     if w.value is None:
         msg = " | ".join(solve_errors) if solve_errors else "Optimiser failed to find a feasible solution."
         return None, {"status": "INFEASIBLE", "message": msg}
@@ -516,7 +516,6 @@ def kpi_number(title: str, value: float, kind: str = "pct"):
         number={"suffix": suffix, "valueformat": vf}
     ))
     fig.update_layout(template="rubrics", margin=dict(l=5,r=5,t=30,b=5), height=110, showlegend=False)
-    fig.update_traces(showlegend=False)
     return apply_theme(fig)
 
 def bar_allocation(df, weights, title):
