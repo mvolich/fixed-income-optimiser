@@ -1,9 +1,8 @@
 [theme]
-base="light"
-primaryColor="#0A4B78"
-backgroundColor="#FFFFFF"
-secondaryBackgroundColor="#F5F7FA"
-textColor="#1E1E1E"
+primaryColor = "#001E4F"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F7F9FC"
+textColor = "#001E4F"
 
 [server]
 enableCORS = false

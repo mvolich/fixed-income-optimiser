@@ -514,13 +514,16 @@ def kpi_number(value: float, kind: str = "pct"):
     fig = go.Figure(go.Indicator(
         mode="number",
         value=val,
-        number={"suffix": suffix, "valueformat": vf}
+        number={"suffix": suffix, "valueformat": vf},
+        # Avoid Plotly showing 'undefined' when no title is provided
+        title={"text": ""}
     ))
     # No figure title; Streamlit will add our label via markdown.
     fig.update_layout(template="rubrics",
                       margin=dict(l=5, r=5, t=10, b=5),
                       height=110,
-                      showlegend=False)
+                      showlegend=False,
+                      title={"text": ""})
     return apply_theme(fig)
 
 def bar_allocation(df, weights, title):
