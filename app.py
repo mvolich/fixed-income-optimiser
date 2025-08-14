@@ -607,6 +607,100 @@ def cap_usage_chart(usage: dict) -> go.Figure:
                                font=dict(color=RB_COLORS["orange"]))
     return fig
 
+# --- Prospectus cap usage visuals -------------------------------------------
+
+def cap_usage_gauge(label: str, used_w: float, cap_w: float) -> go.Figure:
+    """
+    Gauge showing the portfolio weight used (as %) against the cap (as %).
+    - used_w and cap_w are decimals (0..1)
+    """
+    used_pct = max(0.0, used_w * 100.0)
+    cap_pct  = max(0.0, cap_w * 100.0)
+
+    # Keep axis wide enough to show a breach comfortably
+    axis_max = max(cap_pct if cap_pct > 0 else 1.0, used_pct * 1.10, 1.0)
+
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number+delta",
+            value=used_pct,
+            number={"suffix": "%", "valueformat": ".2f"},
+            delta={"reference": cap_pct,
+                   "increasing": {"color": RB_COLORS["orange"]},
+                   "decreasing": {"color": RB_COLORS["blue"]}},
+            gauge={
+                "axis": {"range": [0, axis_max]},
+                "bar": {"color": RB_COLORS["medblue"]},
+                "threshold": {"line": {"color": RB_COLORS["orange"], "width": 3}, "value": cap_pct},
+                # Light grey background up to the cap
+                "steps": [{"range": [0, cap_pct], "color": RB_COLORS["grey"]}]
+            },
+            title={"text": label}
+        )
+    )
+    fig.update_layout(template="rubrics", height=150, margin=dict(l=4, r=4, t=30, b=4))
+    return fig
+
+
+def render_cap_usage_section(fund: str, w: np.ndarray, tags: dict, fc_current: dict):
+    """
+    Build gauges + a small table showing how much of each cap is used.
+    fc_current contains the effective caps (from the sliders in the Fund page).
+    """
+    # Helper to compute weight in each sleeve
+    def _w(mask: np.ndarray) -> float:
+        return float(mask.astype(float) @ w)
+
+    rows = []
+
+    if "max_non_ig" in fc_current:
+        rows.append(("Non‑IG", _w(tags["is_non_ig"]), float(fc_current["max_non_ig"])))
+    if "max_em" in fc_current:
+        rows.append(("EM", _w(tags["is_em"]), float(fc_current["max_em"])))
+    if "max_hybrid" in fc_current:
+        rows.append(("Hybrid (Global Hybrid)", _w(tags["is_hybrid"]), float(fc_current["max_hybrid"])))
+    if "max_at1" in fc_current:
+        rows.append(("AT1 (Bank Capital)", _w(tags["is_at1"]), float(fc_current["max_at1"])))
+    if "max_cash" in fc_current:
+        rows.append(("Cash (T‑Bills)", _w(tags["is_tbill"]), float(fc_current["max_cash"])))
+
+    # Gauges
+    n = len(rows)
+    if n:
+        cols = st.columns(n)
+        for col, (lbl, used, cap) in zip(cols, rows):
+            with col:
+                title_with_help(
+                    lbl,
+                    "Usage of prospectus cap. Gauge shows proposed portfolio weight (needle) versus the cap (orange marker). "
+                    "Values above the marker indicate a breach."
+                )
+                st.plotly_chart(cap_usage_gauge(lbl, used, cap), use_container_width=True)
+
+    # Table (percent formatting + status)
+    if n:
+        data = []
+        for lbl, used, cap in rows:
+            status = "over cap" if cap > 0 and used > cap else ("n/a" if cap == 0 else "within cap")
+            usage = (used / cap) if cap > 0 else np.nan
+            data.append({
+                "Cap": lbl,
+                "Used %": used * 100.0,
+                "Cap %": cap * 100.0,
+                "Usage of cap": usage,   # ratio
+                "Status": status
+            })
+        df_caps = pd.DataFrame(data)
+        sty = (df_caps
+               .style
+               .format({"Used %": "{:.2f}%", "Cap %": "{:.2f}%", "Usage of cap": "{:.0%}"})
+               .apply(lambda s: ["background-color: #ffe6e0" if (v == "over cap") else "" for v in s], subset=["Status"]))
+        st.dataframe(sty, use_container_width=True, height=200)
+
+        # Friendly summary if anything breaches
+        if any(r[1] > r[2] and r[2] > 0 for r in rows):
+            st.warning("One or more limits are over cap. Loosen the offending cap(s) or adjust factor budgets/turnover to find a feasible solution.")
+
 # -----------------------------
 # 5) App UI
 # -----------------------------
