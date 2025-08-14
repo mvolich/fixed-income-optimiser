@@ -430,6 +430,7 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
     fig.add_hline(y=budgets.get("limit_krd10y", 0.75), line_dash="dot", annotation_text="KRD10y cap", annotation_position="top left")
     fig.add_hline(y=budgets.get("limit_sdv01_ig", 3.0), line_dash="dot", annotation_text="sDV01 IG cap", annotation_position="bottom left")
     fig.add_hline(y=budgets.get("limit_sdv01_hy", 1.5), line_dash="dot", annotation_text="sDV01 HY cap", annotation_position="bottom left")
+    fig.add_hline(y=budgets.get("limit_twist", 0.40), line_dash="dot", annotation_text="Twist cap", annotation_position="bottom left")
     fig.update_layout(title=title, height=300, margin=dict(l=10,r=10,t=40,b=20))
     return fig
 
@@ -554,6 +555,9 @@ with st.sidebar:
         else:
             st.warning("Prev weights CSV must have columns [Segment or Name, Weight].")
 
+    st.subheader("Display options")
+    min_weight_display = st.slider("Hide weights below", 0.0, 0.01, 0.001, 0.0005, format="%.3f")
+
 # Prepare scenarios
 mc = simulate_mc_draws(int(n_draws), int(seed), dict(RATES_BP99), dict(SPREAD_BP99))
 pnl_matrix_assets = build_asset_pnl_matrix(df, tags, mc)  # S x N
@@ -620,9 +624,9 @@ with tab_overview:
         agg_weights = np.mean(np.vstack(W), axis=0)
         port_pnl_agg = pnl_matrix_assets @ agg_weights
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
-        er_agg = float(mu @ agg_weights)
+        er_agg_pp = float(mu @ agg_weights) * 100.0
         with cols[3]:
-            st.plotly_chart(gauge_metric("Aggregate – Expected Return", er_agg, suffix="pp"), use_container_width=True)
+            st.plotly_chart(gauge_metric("Aggregate – Expected Return", er_agg_pp, suffix="pp"), use_container_width=True)
             st.plotly_chart(gauge_metric("Aggregate – VaR99 1M", var99_agg), use_container_width=True)
 
     spacer(1)
@@ -635,10 +639,13 @@ with tab_overview:
     if agg_weights is not None:
         alloc_df["Aggregate"] = agg_weights
     alloc_df = alloc_df.fillna(0.0)
+    alloc_df = alloc_df.mask(alloc_df.abs() < min_weight_display, other=0.0)
     st.dataframe(alloc_df.sort_index(), use_container_width=True, height=260)
     fig_alloc = go.Figure()
     for col in alloc_df.columns:
-        fig_alloc.add_bar(name=col, x=alloc_df.index, y=alloc_df[col].values)
+        y = alloc_df[col].values
+        y = np.where(np.abs(y) < min_weight_display, 0.0, y)
+        fig_alloc.add_bar(name=col, x=alloc_df.index, y=y)
     fig_alloc.update_layout(barmode="group", height=380, margin=dict(l=10,r=10,t=40,b=80), xaxis_title="Segment", yaxis_title="Weight")
     st.plotly_chart(fig_alloc, use_container_width=True)
 
