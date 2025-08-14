@@ -72,7 +72,7 @@ except Exception as e:
 
 st.set_page_config(
     page_title="Rubrics Fixed Income Optimiser",
-    page_icon="📈",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -530,7 +530,7 @@ st.title("Rubrics Fixed Income Optimiser")
 st.caption("Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk, Monte‑Carlo VaR, and fund‑specific prospectus caps.")
 spacer(1)
 
-with st.expander("❓ How this optimiser works & what the controls do", expanded=False):
+with st.expander("How this optimiser works & what the controls do", expanded=False):
     st.markdown(
         """
 - **Objective**: chooses the optimisation target (e.g., *Max Return*, *Max Sharpe*).
@@ -709,7 +709,7 @@ with tab_overview:
                 st.plotly_chart(kpi_number(m["VaR99_1M"], kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_var")
 
                 cap = VAR99_CAP[f]
-                status = "✅ within cap" if m["VaR99_1M"] <= cap else "❌ over cap"
+                status = "within cap" if m["VaR99_1M"] <= cap else "over cap"
                 st.caption(f"VaR cap {cap*100:.2f}% — {status}")
             idx += 1
     # Aggregate (configurable)
@@ -858,7 +858,7 @@ with tab_fund:
             st.plotly_chart(kpi_number(metrics["Yield_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_yield")
 
         cap = var_cap
-        status = "✅ within cap" if var99 <= cap else "❌ over cap"
+        status = "within cap" if var99 <= cap else "over cap"
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
 
         # Allocation
