@@ -18,93 +18,44 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.io as pio
-# --- Rubrics branding ---
-BRAND = {
-    "blue":  "#001E4F",
-    "mblue": "#2C5697",
-    "lblue": "#7BA4DB",
-    "grey":  "#D8D7DF",
-    "orange":"#CF4520",
-}
-FUND_COLOURS = {"GFI": BRAND["blue"], "GCF": BRAND["mblue"], "EYF": BRAND["lblue"], "Aggregate": BRAND["grey"]}
 
-def _load_css():
-    try:
-        with open("assets/styles/theme.css", "r", encoding="utf-8") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except Exception:
-        pass
-
-_load_css()
-
-# Plotly rubrics template
-brand_template = go.layout.Template(
-    layout=go.Layout(
-        colorway=[BRAND["blue"], BRAND["mblue"], BRAND["lblue"], BRAND["grey"], BRAND["orange"]],
-        font=dict(family="Ringside, Segoe UI, Arial, sans-serif"),
-        title=dict(font=dict(size=16)),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=10, r=10, t=40, b=40),
-    )
-)
-pio.templates["rubrics"] = brand_template
-pio.templates.default = "rubrics"
-plotly_default_config = {"displaylogo": False, "responsive": True}
-# ----- Rubrics brand palette & theming -----
+# --- Rubrics branding & theme (single source of truth) ---
 RB_COLORS = {
-    "blue": "#001E4F",      # Rubrics Blue
-    "medblue": "#2C5697",   # Rubrics Medium Blue
-    "ltblue": "#7BA4DB",    # Rubrics Light Blue
-    "grey": "#D8D7DF",      # Rubrics Grey
-    "orange": "#CF4520",    # Rubrics Orange
+    "blue":   "#001E4F",  # Rubrics Blue
+    "medblue":"#2C5697",  # Rubrics Medium Blue
+    "ltblue": "#7BA4DB",  # Rubrics Light Blue
+    "grey":   "#D8D7DF",  # Rubrics Grey
+    "orange": "#CF4520",  # Rubrics Orange
 }
+FUND_COLOR = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}
 
 def inject_brand_css():
-    st.markdown(
-        """
-        <style>
-          /* If you have a Ringside webfont, host locally and swap the @import below with @font-face rules. */
-          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    st.markdown("""
+    <style>
+      /* If you have Ringside as a webfont, swap these @imports for @font-face rules. */
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+      :root{ --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520; }
+      html, body, [class*="css"] { font-family: "Ringside", Inter, "Segoe UI", Roboto, Arial, sans-serif; }
+      .stTabs [data-baseweb="tab-list"]{ border-bottom:1px solid var(--rb-grey); }
+      .stTabs [data-baseweb="tab-highlight"]{ background:var(--rb-blue); }
+    </style>
+    """, unsafe_allow_html=True)
 
-          :root{
-            --rb-blue:   #001E4F;
-            --rb-mblue:  #2C5697;
-            --rb-lblue:  #7BA4DB;
-            --rb-grey:   #D8D7DF;
-            --rb-orange: #CF4520;
-          }
-          html, body, [class*="css"] {
-            font-family: "Ringside", Inter, "Segoe UI", Roboto, Arial, sans-serif;
-          }
-          /* Accent: titles & tabs */
-          .stTabs [data-baseweb="tab-list"] {
-            border-bottom: 1px solid var(--rb-grey);
-          }
-          .stTabs [data-baseweb="tab-highlight"] {
-            background: var(--rb-blue);
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
+BRAND_TEMPLATE = go.layout.Template(
+    layout=go.Layout(
+        colorway=[RB_COLORS["blue"], RB_COLORS["medblue"], RB_COLORS["ltblue"], RB_COLORS["grey"], RB_COLORS["orange"]],
+        font=dict(family="Ringside, Inter, Segoe UI, Roboto, Arial, sans-serif"),
+        legend=dict(orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right"),
+        margin=dict(l=10, r=10, t=40, b=40),
+        paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF", title=dict(font=dict(size=16))
     )
-
-# Plotly theme and helper
-THEME_LAYOUT = go.Layout(
-    font=dict(
-        family="Ringside, Inter, Segoe UI, Roboto, Arial, sans-serif",
-        size=13,
-        color=RB_COLORS["blue"],
-    ),
-    colorway=[RB_COLORS["blue"], RB_COLORS["medblue"], RB_COLORS["ltblue"], RB_COLORS["orange"]],
-    paper_bgcolor="#FFFFFF",
-    plot_bgcolor="#FFFFFF",
-    title_x=0.01,
-    margin=dict(l=10, r=10, t=40, b=30),
 )
-pio.templates.default = "plotly_white"
+pio.templates["rubrics"] = BRAND_TEMPLATE
+pio.templates.default = "rubrics"
+plotly_default_config = {"displaylogo": False, "responsive": True}
 
+# Theme helper (kept for API compatibility; template already applied globally)
 def apply_theme(fig: go.Figure) -> go.Figure:
-    fig.update_layout(THEME_LAYOUT)
     return fig
 
 # Try to import cvxpy; if missing, provide a graceful message
@@ -130,6 +81,7 @@ inject_brand_css()
 
 # Default file name if the user doesn't upload
 DEFAULT_INPUT_FILE = "Optimiser_Input_Final_v3.xlsx"
+SAMPLE_INPUT_FILE = "sample_data/Optimiser_Input_Sample.xlsx"
 INPUT_SHEET = "Optimiser_Input"
 
 # Prospectus caps per fund (locked as provided)
@@ -500,31 +452,19 @@ def style_dataframe_percent(df, pct_cols, digits=2):
         df[c] = (df[c] * 100).round(digits)
     return df
 
-def kpi_number(value: float, kind: str = "pct"):
-    # kind: "pct" -> x is decimal; "pp" -> x is already percentage points
-    if kind == "pp":
-        val = value
-        suffix = "pp"
-        vf = ".2f"
-    else:
-        val = value * 100
-        suffix = "%"
-        vf = ".2f"
+def fmt_weight(series, digits=2):
+    """Convert weights (decimal) to percentage values for display.
+    Accepts numpy arrays, pandas Series, or lists.
+    """
+    return (np.asarray(series) * 100).round(digits)
 
-    fig = go.Figure(go.Indicator(
-        mode="number",
-        value=val,
-        number={"suffix": suffix, "valueformat": vf},
-        # Avoid Plotly showing 'undefined' when no title is provided
-        title={"text": ""}
-    ))
-    # No figure title; Streamlit will add our label via markdown.
-    fig.update_layout(template="rubrics",
-                      margin=dict(l=5, r=5, t=10, b=5),
-                      height=110,
-                      showlegend=False,
-                      title={"text": ""})
-    return apply_theme(fig)
+def kpi_number(value: float, kind: str = "pct"):
+    # kind: "pct" (value is decimal), "pp" (value is already percentage points)
+    val = value * 100 if kind == "pct" else value
+    suffix = "%" if kind == "pct" else "pp"
+    fig = go.Figure(go.Indicator(mode="number", value=val, number={"suffix": suffix, "valueformat": ".2f"}))
+    fig.update_layout(template="rubrics", margin=dict(l=5, r=5, t=6, b=6), height=110, showlegend=False, title={"text": ""})
+    return fig
 
 def bar_allocation(df, weights, title):
     ser = pd.Series(weights, index=df["Name"]).sort_values(ascending=False)
@@ -536,22 +476,18 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
     is_ig_mask = tag_segments(df)["is_ig"]
     oasd = df["OASD_Years"].values
     vals = {
-        "KRD 2y": float(df["KRD_2y"].values @ weights),
-        "KRD 5y": float(df["KRD_5y"].values @ weights),
         "KRD 10y": float(df["KRD_10y"].values @ weights),
-        "KRD 30y": float(df["KRD_30y"].values @ weights),
+        "Twist (30y–2y)": float((df["KRD_30y"].values - df["KRD_2y"].values) @ weights),
         "sDV01 IG": float(np.sum(oasd * weights * is_ig_mask)),
         "sDV01 HY": float(np.sum(oasd * weights * (~is_ig_mask))),
     }
-    x = list(vals.keys()); y = list(vals.values())
-    fig = go.Figure(go.Bar(x=x, y=y))
-    # Budget lines (only those that map)
+    fig = go.Figure(go.Bar(x=list(vals.keys()), y=list(vals.values())))
     fig.add_hline(y=budgets.get("limit_krd10y", 0.75), line_dash="dot", annotation_text="KRD10y cap", annotation_position="top left")
+    fig.add_hline(y=budgets.get("limit_twist", 0.40), line_dash="dot", annotation_text="Twist cap", annotation_position="bottom left")
     fig.add_hline(y=budgets.get("limit_sdv01_ig", 3.0), line_dash="dot", annotation_text="sDV01 IG cap", annotation_position="bottom left")
     fig.add_hline(y=budgets.get("limit_sdv01_hy", 1.5), line_dash="dot", annotation_text="sDV01 HY cap", annotation_position="bottom left")
-    fig.add_hline(y=budgets.get("limit_twist", 0.40), line_dash="dot", annotation_text="Twist cap", annotation_position="bottom left")
     fig.update_layout(title=title, height=300, margin=dict(l=10,r=10,t=40,b=20))
-    return apply_theme(fig)
+    return fig
 
 def scenario_histogram(port_pnl, title="Scenario P&L (1M)"):
     fig = go.Figure(data=[go.Histogram(x=port_pnl * 100, nbinsx=40)])
@@ -575,32 +511,16 @@ def contributions_table(df, weights, mu):
     return contr
 
 def heatmap_funds_losses(fund_results: dict):
-    # funds x scenarios average loss; use mean of tail scenario losses or mean absolute? We'll use mean % loss
-    mats = []
-    funds = []
-    for f,(res, pnl) in fund_results.items():
-        funds.append(f)
-        mats.append(pnl.mean(axis=1))  # naive summary across assets → mean across assets by scenario; but we need per scenario portfolio P&L -> compute now
-    # Actually compute portfolio P&L per draw for each fund
-    Z = []
-    for f,(res, pnl) in fund_results.items():
-        w = res["weights"]
-        Z.append((pnl @ w))
-    # Stack scenarios in columns; funds in rows
-    Z = np.vstack(Z)
-    # We have MC draws, not labeled scenarios; show quantiles by buckets (10,50,90). For simplicity, show mean (column) ; but better show distribution summary.
-    # We'll show a heatmap of selected percentiles across funds.
     percs = [1,5,10,25,50,75,90,95,99]
-    data = []
-    for row in Z:
-        data.append([np.percentile(row, p) for p in percs])
-    fig = go.Figure(data=go.Heatmap(
-        z=data,
-        x=[f"P{p}" for p in percs],
-        y=funds
-    ))
+    rows, labels = [], []
+    for f,(res, pnl_assets) in fund_results.items():
+        w = res["weights"]
+        pnl_port = pnl_assets @ w
+        rows.append([np.percentile(pnl_port, p) for p in percs])
+        labels.append(f)
+    fig = go.Figure(go.Heatmap(z=np.array(rows), x=[f"P{p}" for p in percs], y=labels, colorscale="RdBu", zmid=0))
     fig.update_layout(title="Scenario Distribution by Fund (Portfolio P&L percentiles)", height=300, margin=dict(l=10,r=10,t=40,b=20))
-    return apply_theme(fig)
+    return fig
 
 # -----------------------------
 # 5) App UI
@@ -690,8 +610,31 @@ with st.sidebar:
         else:
             st.warning("Prev weights CSV must have columns [Segment or Name, Weight].")
 
+    st.divider()
+    if st.button("Reset all controls to defaults"):
+        st.experimental_rerun()
+
     st.subheader("Display options")
     min_weight_display = st.slider("Hide weights below", 0.0, 0.01, 0.001, 0.0005, format="%.3f")
+
+    with st.expander("Presets", expanded=False):
+        if st.button("Save current settings"):
+            preset = dict(
+                rates=dict(RATES_BP99),
+                spreads=dict(SPREAD_BP99),
+                fb=dict(limit_krd10y=limit_krd10y, limit_twist=limit_twist, limit_sdv01_ig=limit_sdv01_ig, limit_sdv01_hy=limit_sdv01_hy),
+                turnover=dict(penalty_bps=penalty_bps, max_turnover=max_turn)
+            )
+            st.download_button("Download preset.json", data=json.dumps(preset).encode(), file_name="preset.json", mime="application/json")
+        preset_file = st.file_uploader("Load preset.json", type=["json"], key="preset_json")
+        if preset_file:
+            p = json.loads(preset_file.read())
+            # Apply minimal set (rates/spreads) then suggest rerun for others
+            for k,v in p.get('rates', {}).items():
+                RATES_BP99[k] = v
+            for k,v in p.get('spreads', {}).items():
+                SPREAD_BP99[k] = v
+            st.info("Preset loaded. Adjust budgets/turnover as needed, then rerun.")
 
 # Prepare scenarios
 mc = simulate_mc_draws(int(n_draws), int(seed), dict(RATES_BP99), dict(SPREAD_BP99))
@@ -769,10 +712,16 @@ with tab_overview:
                 status = "✅ within cap" if m["VaR99_1M"] <= cap else "❌ over cap"
                 st.caption(f"VaR cap {cap*100:.2f}% — {status}")
             idx += 1
-    # Aggregate (equal-weight of funds that solved)
+    # Aggregate (configurable)
+    agg_mode = st.radio("Aggregate weighting:", ["Equal-weight", "By expected return (proxy AUM)"], horizontal=True)
     if len(fund_outputs) > 0:
-        W = [fund_outputs[f][0]["weights"] for f in fund_outputs]
-        agg_weights = np.mean(np.vstack(W), axis=0)
+        Ws = np.vstack([fund_outputs[f][0]["weights"] for f in fund_outputs])
+        if agg_mode == "Equal-weight":
+            agg_weights = Ws.mean(axis=0)
+        else:
+            ers = np.array([fund_outputs[f][0]["ExpRet_pct"] for f in fund_outputs])  # pp
+            w_funds = ers / ers.sum() if ers.sum() != 0 else np.ones_like(ers) / len(ers)
+            agg_weights = (w_funds.reshape(-1,1) * Ws).sum(axis=0)
         port_pnl_agg = pnl_matrix_assets @ agg_weights
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
         er_agg_pp = float(mu @ agg_weights) * 100.0
@@ -794,32 +743,34 @@ with tab_overview:
         alloc_df["Aggregate"] = agg_weights
     alloc_df = alloc_df.fillna(0.0)
     alloc_df = alloc_df.mask(alloc_df.abs() < min_weight_display, other=0.0)
-    st.dataframe(alloc_df.sort_index().style.format("{:.2%}"), use_container_width=True, height=260)
+    alloc_df_display = alloc_df.apply(lambda col: pd.Series(fmt_weight(col), index=alloc_df.index))
+    st.dataframe(alloc_df_display.sort_index().style.format("{:.2f}%"), use_container_width=True, height=260)
     fig_alloc = go.Figure()
     for col in alloc_df.columns:
         y = alloc_df[col].values
         y = np.where(np.abs(y) < min_weight_display, 0.0, y)
-        color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}.get(col, None)
+        color = FUND_COLOR.get(col, None)
         fig_alloc.add_bar(name=col, x=alloc_df.index, y=y, marker_color=color)
     fig_alloc.update_layout(barmode="group", height=380, margin=dict(l=10,r=10,t=40,b=80), xaxis_title="Segment", yaxis_title="Weight")
     st.plotly_chart(fig_alloc, use_container_width=True)
 
     spacer(1)
-    # Factor exposures vs budgets (show KRD10 and twist + sDV01 budgets summary)
+    # Factor exposures vs budgets (show KRD10, Twist, sDV01 IG/HY)
     st.markdown("**Factor exposures vs budgets** (KRD & sDV01)")
     fig_fb = go.Figure()
-    # Summaries for each fund
     for f in ["GFI","GCF","EYF"]:
         if f in fund_outputs:
             w = fund_outputs[f][0]["weights"]
+            is_ig_mask = tag_segments(df)["is_ig"]
+            oasd = df["OASD_Years"].values
             vals = {
-                "KRD10y": float(df["KRD_10y"].values @ w),
-                "Twist(30-2)": float((df["KRD_30y"].values - df["KRD_2y"].values) @ w),
-                "sDV01": float(df["OASD_Years"].values @ w),
+                "KRD 10y": float(df["KRD_10y"].values @ w),
+                "Twist (30y–2y)": float((df["KRD_30y"].values - df["KRD_2y"].values) @ w),
+                "sDV01 IG": float(np.sum(oasd * w * is_ig_mask)),
+                "sDV01 HY": float(np.sum(oasd * w * (~is_ig_mask))),
             }
-            fig_fb.add_bar(name=f" {f} KRD10y", x=["KRD10y"], y=[vals["KRD10y"]])
-            fig_fb.add_bar(name=f" {f} Twist", x=["Twist(30-2)"], y=[vals["Twist(30-2)"]])
-            fig_fb.add_bar(name=f" {f} sDV01", x=["sDV01"], y=[vals["sDV01"]])
+            for k,v in vals.items():
+                fig_fb.add_bar(name=f" {f} {k}", x=[k], y=[v])
     fig_fb.update_layout(barmode="group", height=300, margin=dict(l=10,r=10,t=40,b=20))
     st.plotly_chart(fig_fb, use_container_width=True)
 
@@ -857,10 +808,13 @@ with tab_fund:
         max_at1    = st.slider("Max AT1 weight",    0.0, 1.0, float(fc.get("max_at1",1.0)),    0.01, help="Bank Additional Tier‑1 sleeve (per prospectus restrictions).")
 
         # Build a temporary override dict (used only in this tab run). Backup and restore afterwards
-        _fc_backup = FUND_CONSTRAINTS[fund].copy()
-        FUND_CONSTRAINTS[fund] = {"max_non_ig": max_non_ig, "max_em": max_em, "max_cash": max_cash, "max_at1": max_at1}
-        if "max_hybrid" in fc:
-            FUND_CONSTRAINTS[fund]["max_hybrid"] = max_hybrid
+        _fc_backup = {k:v for k,v in FUND_CONSTRAINTS[fund].items()}
+        try:
+            FUND_CONSTRAINTS[fund] = {"max_non_ig": max_non_ig, "max_em": max_em, "max_cash": max_cash, "max_at1": max_at1}
+            if "max_hybrid" in fc:
+                FUND_CONSTRAINTS[fund]["max_hybrid"] = max_hybrid
+        finally:
+            pass
 
         st.write("Factor budgets (yrs):")
         lk = st.number_input("|KRD 10y| cap", value=limit_krd10y, step=0.05, format="%.2f", help="Limit to 10y interest‑rate exposure (in duration years) for the portfolio.")
