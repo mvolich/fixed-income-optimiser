@@ -515,7 +515,8 @@ def kpi_number(title: str, value: float, kind: str = "pct"):
         title={"text": title},
         number={"suffix": suffix, "valueformat": vf}
     ))
-    fig.update_layout(template="rubrics", margin=dict(l=5,r=5,t=30,b=5), height=110)
+    fig.update_layout(template="rubrics", margin=dict(l=5,r=5,t=30,b=5), height=110, showlegend=False)
+    fig.update_traces(showlegend=False)
     return apply_theme(fig)
 
 def bar_allocation(df, weights, title):
