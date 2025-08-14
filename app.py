@@ -128,8 +128,8 @@ st.set_page_config(
 
 inject_brand_css()
 
-# Default file name if the user doesn't upload (bundled sample)
-DEFAULT_INPUT_FILE = "sample_data/Optimiser_Input_Sample.xlsx"
+# Default file name if the user doesn't upload
+DEFAULT_INPUT_FILE = "Optimiser_Input_Final_v3.xlsx"
 INPUT_SHEET = "Optimiser_Input"
 
 # Prospectus caps per fund (locked as provided)
@@ -628,7 +628,7 @@ Changing a slider updates the optimisation and the charts so you can see the imp
 
 # File input
 with st.expander("Data source (Excel) • required columns: Segment_ID, Name, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Credit_Quality, Instrument_Type, Include", expanded=False):
-    upload = st.file_uploader("Upload Optimiser_Input Excel (sheet Optimiser_Input)", type=["xlsx"], accept_multiple_files=False)
+    upload = st.file_uploader("Upload Optimiser_Input_Final_v3.xlsx (sheet Optimiser_Input)", type=["xlsx"], accept_multiple_files=False)
     st.write("If no file is uploaded, the app will try to read:", f"`{DEFAULT_INPUT_FILE}`")
 
 # Load data
