@@ -49,6 +49,7 @@ brand_template = go.layout.Template(
 )
 pio.templates["rubrics"] = brand_template
 pio.templates.default = "rubrics"
+plotly_default_config = {"displaylogo": False, "responsive": True}
 # ----- Rubrics brand palette & theming -----
 RB_COLORS = {
     "blue": "#001E4F",      # Rubrics Blue
@@ -499,8 +500,8 @@ def style_dataframe_percent(df, pct_cols, digits=2):
         df[c] = (df[c] * 100).round(digits)
     return df
 
-def kpi_number(title: str, value: float, kind: str = "pct"):
-    # kind: "pct" -> x is decimal; "pp" -> x is already percent points
+def kpi_number(value: float, kind: str = "pct"):
+    # kind: "pct" -> x is decimal; "pp" -> x is already percentage points
     if kind == "pp":
         val = value
         suffix = "pp"
@@ -509,13 +510,17 @@ def kpi_number(title: str, value: float, kind: str = "pct"):
         val = value * 100
         suffix = "%"
         vf = ".2f"
+
     fig = go.Figure(go.Indicator(
         mode="number",
         value=val,
-        title={"text": title},
         number={"suffix": suffix, "valueformat": vf}
     ))
-    fig.update_layout(template="rubrics", margin=dict(l=5,r=5,t=30,b=5), height=110, showlegend=False)
+    # No figure title; Streamlit will add our label via markdown.
+    fig.update_layout(template="rubrics",
+                      margin=dict(l=5, r=5, t=10, b=5),
+                      height=110,
+                      showlegend=False)
     return apply_theme(fig)
 
 def bar_allocation(df, weights, title):
@@ -751,8 +756,12 @@ with tab_overview:
         if f in fund_outputs:
             m,_ = fund_outputs[f]
             with cols[idx]:
-                st.plotly_chart(kpi_number(f"{f} – Expected Return", m["ExpRet_pct"], kind="pp"), use_container_width=True)
-                st.plotly_chart(kpi_number(f"{f} – VaR99 1M", m["VaR99_1M"], kind="pct"), use_container_width=True)
+                st.markdown(f"**{f} – Expected Return**")
+                st.plotly_chart(kpi_number(m["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config)
+
+                st.markdown(f"**{f} – VaR99 1M**")
+                st.plotly_chart(kpi_number(m["VaR99_1M"], kind="pct"), use_container_width=True, config=plotly_default_config)
+
                 cap = VAR99_CAP[f]
                 status = "✅ within cap" if m["VaR99_1M"] <= cap else "❌ over cap"
                 st.caption(f"VaR cap {cap*100:.2f}% — {status}")
@@ -765,8 +774,11 @@ with tab_overview:
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
         er_agg_pp = float(mu @ agg_weights) * 100.0
         with cols[3]:
-            st.plotly_chart(kpi_number("Aggregate – Expected Return", er_agg_pp, kind="pp"), use_container_width=True)
-            st.plotly_chart(kpi_number("Aggregate – VaR99 1M", var99_agg, kind="pct"), use_container_width=True)
+            st.markdown("**Aggregate – Expected Return**")
+            st.plotly_chart(kpi_number(er_agg_pp, kind="pp"), use_container_width=True, config=plotly_default_config)
+
+            st.markdown("**Aggregate – VaR99 1M**")
+            st.plotly_chart(kpi_number(var99_agg, kind="pct"), use_container_width=True, config=plotly_default_config)
 
     spacer(1)
     # Allocation by segment (stacked bars)
@@ -875,10 +887,18 @@ with tab_fund:
         port_pnl = pnl_matrix_assets @ w
         var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
         cols = st.columns(4)
-        with cols[0]: st.plotly_chart(kpi_number("Expected Return (ann.)", metrics["ExpRet_pct"], kind="pp"), use_container_width=True)
-        with cols[1]: st.plotly_chart(kpi_number("VaR99 1M", var99, kind="pct"), use_container_width=True)
-        with cols[2]: st.plotly_chart(kpi_number("CVaR99 1M", cvar99, kind="pct"), use_container_width=True)
-        with cols[3]: st.plotly_chart(kpi_number("Portfolio Yield", metrics["Yield_pct"], kind="pp"), use_container_width=True)
+        with cols[0]:
+            st.markdown("**Expected Return (ann.)**")
+            st.plotly_chart(kpi_number(metrics["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config)
+        with cols[1]:
+            st.markdown("**VaR99 1M**")
+            st.plotly_chart(kpi_number(var99, kind="pct"), use_container_width=True, config=plotly_default_config)
+        with cols[2]:
+            st.markdown("**CVaR99 1M**")
+            st.plotly_chart(kpi_number(cvar99, kind="pct"), use_container_width=True, config=plotly_default_config)
+        with cols[3]:
+            st.markdown("**Portfolio Yield**")
+            st.plotly_chart(kpi_number(metrics["Yield_pct"], kind="pp"), use_container_width=True, config=plotly_default_config)
 
         cap = var_cap
         status = "✅ within cap" if var99 <= cap else "❌ over cap"
