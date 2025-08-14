@@ -72,6 +72,55 @@ def spacer(h=1):
         st.write("")
 
 # -----------------------------
+# Column normalization & validation
+# -----------------------------
+
+# Required columns that the optimiser logic depends on
+REQUIRED_COLS = [
+    "Segment_ID","Name","Instrument_Type","Credit_Quality","Include",
+    "Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years",
+    "KRD_2y","KRD_5y","KRD_10y","KRD_30y",
+]
+
+# Common aliases (all compared in lowercase) that will be renamed to the required names
+COLUMN_SYNONYMS = {
+    "oasd_years": ["asd_years"],
+    "krd_2y": ["krd_2","krd2y"],
+    "krd_5y": ["krd_5","krd5y"],
+    "krd_10y": ["krd_10","krd10y"],
+    "krd_30y": ["krd_30","krd30y"],
+    "yield_hedged_pct": ["yield_hedged","yield_hedged_%","yield_hedged_percent"],
+    "roll_down_bps_1y": ["roll_down_bps","rolldown_bps_1y"],
+    "instrument_type": ["type"],
+    "credit_quality": ["rating","quality"],
+}
+
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    # Map lower-case names to actual case from the file
+    lower_to_actual = {c.lower().strip(): c for c in df.columns}
+    # Start with identity mapping
+    rename_map: dict[str, str] = {}
+    for target in REQUIRED_COLS:
+        target_l = target.lower()
+        if target_l in lower_to_actual:
+            # Column present with different case; ensure exact name
+            src = lower_to_actual[target_l]
+            if src != target:
+                rename_map[src] = target
+            continue
+        # Try synonyms
+        for alias in COLUMN_SYNONYMS.get(target_l, []):
+            if alias in lower_to_actual:
+                rename_map[lower_to_actual[alias]] = target
+                break
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    missing = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+    return df
+
+# -----------------------------
 # 1) Data ingest & classification
 # -----------------------------
 
@@ -82,6 +131,8 @@ def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPU
         df = pd.read_excel(bio, sheet_name=INPUT_SHEET, engine="openpyxl")
     else:
         df = pd.read_excel(path, sheet_name=INPUT_SHEET, engine="openpyxl")
+    # Normalize columns and validate required fields
+    df = _normalize_columns(df)
     # Coerce numerics
     num_cols = ["Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years","Convexity","KRD_2y","KRD_5y","KRD_10y","KRD_30y"]
     for c in num_cols:
@@ -306,23 +357,35 @@ def solve_portfolio(df: pd.DataFrame,
         obj = cp.Minimize(cvar + turnover_penalty * cp.norm1(w - prev_w) + ridge * cp.sum_squares(w))
 
     prob = cp.Problem(obj, constraints)
-    try:
-        prob.solve(solver=cp.OSQP, verbose=False, max_iter=100000)
-    except Exception as e:
-        return None, {"status": "ERROR", "message": str(e)}
-
+    # Solver fallback chain for robustness
+    solve_errors = []
+    for solver, kwargs in [
+        (cp.OSQP, {"verbose": False, "max_iter": 100000}),
+        (cp.SCS,  {"verbose": False, "max_iters": 25000}),
+        (cp.ECOS, {"verbose": False, "max_iters": 100000}),
+    ]:
+        try:
+            prob.solve(solver=solver, **kwargs)
+            break
+        except Exception as e:
+            solve_errors.append(f"{getattr(solver, '__name__', str(solver))}: {e}")
+            continue
+    
     if w.value is None:
-        return None, {"status": "INFEASIBLE", "message": "Optimiser failed to find a feasible solution."}
+        msg = " | ".join(solve_errors) if solve_errors else "Optimiser failed to find a feasible solution."
+        return None, {"status": "INFEASIBLE", "message": msg}
 
     w_opt = np.array(w.value).ravel()
     # Compute metrics
     port_pnl = pnl_matrix @ w_opt
     var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
-    er = float(mu @ w_opt)  # expected return (%)
+    # mu is in decimals; convert to pp for display
+    er_dec = float(mu @ w_opt)
+    er_pp  = er_dec * 100.0
     yld = float(df["Yield_Hedged_Pct"].values @ w_opt)
     oad = float(df["OAD_Years"].values @ w_opt)
 
-    metrics = {"status": "OPTIMAL", "obj": prob.value, "ExpRet_pct": er, "Yield_pct": yld, "OAD_years": oad,
+    metrics = {"status": "OPTIMAL", "obj": prob.value, "ExpRet_pct": er_pp, "Yield_pct": yld, "OAD_years": oad,
                "VaR99_1M": var99, "CVaR99_1M": cvar99, "weights": w_opt}
     return w_opt, metrics
 
@@ -347,13 +410,15 @@ def bar_allocation(df, weights, title):
     return fig
 
 def exposures_vs_budgets(df, weights, budgets: dict, title: str):
+    is_ig_mask = tag_segments(df)["is_ig"]
+    oasd = df["OASD_Years"].values
     vals = {
-        "KRD 2y": float((df["KRD_2y"].values @ weights)),
-        "KRD 5y": float((df["KRD_5y"].values @ weights)),
-        "KRD 10y": float((df["KRD_10y"].values @ weights)),
-        "KRD 30y": float((df["KRD_30y"].values @ weights)),
-        "sDV01 IG": float((df["OASD_Years"].values * tag_segments(df)["is_ig"]).sum() * (weights @ np.ones(len(weights)))/len(weights)),  # rough display only
-        "sDV01 HY": float((df["OASD_Years"].values * (~tag_segments(df)["is_ig"])).sum() * (weights @ np.ones(len(weights)))/len(weights)), # rough
+        "KRD 2y": float(df["KRD_2y"].values @ weights),
+        "KRD 5y": float(df["KRD_5y"].values @ weights),
+        "KRD 10y": float(df["KRD_10y"].values @ weights),
+        "KRD 30y": float(df["KRD_30y"].values @ weights),
+        "sDV01 IG": float(np.sum(oasd * weights * is_ig_mask)),
+        "sDV01 HY": float(np.sum(oasd * weights * (~is_ig_mask))),
     }
     x = list(vals.keys()); y = list(vals.values())
     fig = go.Figure(go.Bar(x=x, y=y))
@@ -365,10 +430,10 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
     return fig
 
 def scenario_histogram(port_pnl, title="Scenario P&L (1M)"):
-    fig = go.Figure(data=[go.Histogram(x=port_pnl, nbinsx=40)])
+    fig = go.Figure(data=[go.Histogram(x=port_pnl * 100, nbinsx=40)])
     var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
-    fig.add_vline(x=-var99, line_dash="dash", annotation_text="VaR99", annotation_position="top left")
-    fig.add_vline(x=-cvar99, line_dash="dot", annotation_text="CVaR99", annotation_position="top left")
+    fig.add_vline(x=-var99 * 100, line_dash="dash", annotation_text="VaR99", annotation_position="top left")
+    fig.add_vline(x=-cvar99 * 100, line_dash="dot", annotation_text="CVaR99", annotation_position="top left")
     fig.update_layout(title=title, xaxis_title="% P&L", yaxis_title="Count", height=300, margin=dict(l=10,r=10,t=40,b=20))
     return fig
 
@@ -376,7 +441,8 @@ def contributions_table(df, weights, mu):
     contr = pd.DataFrame({
         "Segment": df["Name"],
         "Weight": weights,
-        "ER_Contribution_pct": weights * mu,
+        # mu is decimal; show pp in the contributions view
+        "ER_Contribution_pct": weights * (mu * 100.0),
         "Yield_pct": df["Yield_Hedged_Pct"].values,
         "RollDown_pct": df["Roll_Down_bps_1Y"].values/100.0,
         "OAD_Years": df["OAD_Years"].values,
@@ -384,7 +450,7 @@ def contributions_table(df, weights, mu):
     }).sort_values("Weight", ascending=False)
     return contr
 
-def heatmap_funds_losses(fund_results: dict, pnl_mats: dict):
+def heatmap_funds_losses(fund_results: dict):
     # funds x scenarios average loss; use mean of tail scenario losses or mean absolute? We'll use mean % loss
     mats = []
     funds = []
@@ -469,10 +535,27 @@ with st.sidebar:
     penalty_bps = st.number_input("Penalty (bps per 100% turnover)", value=TURNOVER_DEFAULTS["penalty_bps_per_100"], step=1.0)
     max_turn = st.slider("Max turnover per rebalance", 0.0, 1.0, TURNOVER_DEFAULTS["max_turnover"], 0.01)
 
+    st.subheader("Previous Weights (optional)")
+    prev_file = st.file_uploader("CSV with columns [Segment or Name, Weight]", type=["csv"], key="prev_weights")
+    prev_w_vec = None
+    if prev_file is not None:
+        _pw = pd.read_csv(prev_file)
+        name_col = "Segment" if "Segment" in _pw.columns else ("Name" if "Name" in _pw.columns else None)
+        if name_col is not None and "Weight" in _pw.columns:
+            _pw[name_col] = _pw[name_col].astype(str).str.strip()
+            prev_w_vec = df["Name"].astype(str).str.strip().map(_pw.set_index(name_col)["Weight"]).fillna(0.0).values
+            s = prev_w_vec.sum()
+            if s > 0:
+                prev_w_vec = prev_w_vec / s
+        else:
+            st.warning("Prev weights CSV must have columns [Segment or Name, Weight].")
+
 # Prepare scenarios
-mc = simulate_mc_draws(int(n_draws), int(seed), RATES_BP99, SPREAD_BP99)
+mc = simulate_mc_draws(int(n_draws), int(seed), dict(RATES_BP99), dict(SPREAD_BP99))
 pnl_matrix_assets = build_asset_pnl_matrix(df, tags, mc)  # S x N
-mu = df["ExpRet_pct"].values
+# Expected return vector: keep pp for display, convert to decimals for optimisation
+mu_pp = df["ExpRet_pct"].values.astype(float)
+mu = mu_pp / 100.0
 
 # Helper: run optimisation for a single fund
 def run_fund(fund: str, objective: str, var_cap_override: float | None = None, prev_w=None):
@@ -506,7 +589,7 @@ with tab_overview:
     # Run funds
     fund_outputs = {}
     for f in ["GFI","GCF","EYF"]:
-        w, metrics, port_pnl = run_fund(f, objective)
+        w, metrics, port_pnl = run_fund(f, objective, prev_w=prev_w_vec)
         if w is not None:
             metrics["weights"] = w
             fund_outputs[f] = (metrics, pnl_matrix_assets)  # keep asset pnl for heatmap
@@ -521,8 +604,11 @@ with tab_overview:
         if f in fund_outputs:
             m,_ = fund_outputs[f]
             with cols[idx]:
-                st.plotly_chart(gauge_metric(f"{f} – Expected Return", m["ExpRet_pct"]), use_container_width=True)
+                st.plotly_chart(gauge_metric(f"{f} – Expected Return", m["ExpRet_pct"], suffix="pp"), use_container_width=True)
                 st.plotly_chart(gauge_metric(f"{f} – VaR99 1M", m["VaR99_1M"]), use_container_width=True)
+                cap = VAR99_CAP[f]
+                status = "✅ within cap" if m["VaR99_1M"] <= cap else "❌ over cap"
+                st.caption(f"VaR cap {cap*100:.2f}% — {status}")
             idx += 1
     # Aggregate (equal-weight of funds that solved)
     if len(fund_outputs) > 0:
@@ -532,7 +618,7 @@ with tab_overview:
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
         er_agg = float(mu @ agg_weights)
         with cols[3]:
-            st.plotly_chart(gauge_metric("Aggregate – Expected Return", er_agg), use_container_width=True)
+            st.plotly_chart(gauge_metric("Aggregate – Expected Return", er_agg, suffix="pp"), use_container_width=True)
             st.plotly_chart(gauge_metric("Aggregate – VaR99 1M", var99_agg), use_container_width=True)
 
     spacer(1)
@@ -574,7 +660,7 @@ with tab_overview:
     spacer(1)
     # Scenario percentiles heatmap
     if len(fund_outputs) > 0:
-        z_fig = heatmap_funds_losses(fund_outputs, {"assets": pnl_matrix_assets})
+        z_fig = heatmap_funds_losses(fund_outputs)
         st.plotly_chart(z_fig, use_container_width=True)
 
     spacer(1)
@@ -604,7 +690,8 @@ with tab_fund:
         max_cash   = st.slider("Max Cash weight",   0.0, 1.0, float(fc.get("max_cash",1.0)),   0.01)
         max_at1    = st.slider("Max AT1 weight",    0.0, 1.0, float(fc.get("max_at1",1.0)),    0.01)
 
-        # Build a temporary override dict (used only in this tab run)
+        # Build a temporary override dict (used only in this tab run). Backup and restore afterwards
+        _fc_backup = FUND_CONSTRAINTS[fund].copy()
         FUND_CONSTRAINTS[fund] = {"max_non_ig": max_non_ig, "max_em": max_em, "max_cash": max_cash, "max_at1": max_at1}
         if "max_hybrid" in fc:
             FUND_CONSTRAINTS[fund]["max_hybrid"] = max_hybrid
@@ -627,7 +714,9 @@ with tab_fund:
             "cvar_cap": var_cap * 1.15,  # CVaR cap above VaR target
         }
         w, metrics = None, None
-        w, metrics = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params, prev_w=None)
+        w, metrics = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params, prev_w=prev_w_vec)
+        # Restore constraints regardless of outcome
+        FUND_CONSTRAINTS[fund] = _fc_backup
         if w is None:
             st.error(f"Optimisation failed: {metrics.get('status','')} – {metrics.get('message','')}")
             st.stop()
@@ -635,10 +724,14 @@ with tab_fund:
         port_pnl = pnl_matrix_assets @ w
         var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
         cols = st.columns(4)
-        with cols[0]: st.plotly_chart(gauge_metric("Expected Return (ann.)", metrics["ExpRet_pct"]), use_container_width=True)
+        with cols[0]: st.plotly_chart(gauge_metric("Expected Return (ann.)", metrics["ExpRet_pct"], suffix="pp"), use_container_width=True)
         with cols[1]: st.plotly_chart(gauge_metric("VaR99 1M", var99), use_container_width=True)
         with cols[2]: st.plotly_chart(gauge_metric("CVaR99 1M", cvar99), use_container_width=True)
-        with cols[3]: st.plotly_chart(gauge_metric("Portfolio Yield", metrics["Yield_pct"]), use_container_width=True)
+        with cols[3]: st.plotly_chart(gauge_metric("Portfolio Yield", metrics["Yield_pct"], suffix="pp"), use_container_width=True)
+
+        cap = var_cap
+        status = "✅ within cap" if var99 <= cap else "❌ over cap"
+        st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
 
         # Allocation
         st.plotly_chart(bar_allocation(df, w, f"{fund} – Allocation by Segment"), use_container_width=True)
