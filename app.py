@@ -130,6 +130,7 @@ inject_brand_css()
 
 # Default file name if the user doesn't upload
 DEFAULT_INPUT_FILE = "Optimiser_Input_Final_v3.xlsx"
+SAMPLE_INPUT_FILE = "sample_data/Optimiser_Input_Sample.xlsx"
 INPUT_SHEET = "Optimiser_Input"
 
 # Prospectus caps per fund (locked as provided)
@@ -217,11 +218,21 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPUT_FILE) -> pd.DataFrame:
+    """Load input table from uploaded bytes or a default path.
+
+    Falls back to the bundled sample file in `sample_data/` if the default
+    enterprise file name is not found so the app remains usable out‑of‑the‑box.
+    """
     if uploaded_file_bytes is not None:
         bio = io.BytesIO(uploaded_file_bytes)
         df = pd.read_excel(bio, sheet_name=INPUT_SHEET, engine="openpyxl")
     else:
-        df = pd.read_excel(path, sheet_name=INPUT_SHEET, engine="openpyxl")
+        try:
+            df = pd.read_excel(path, sheet_name=INPUT_SHEET, engine="openpyxl")
+        except FileNotFoundError:
+            # Fall back to the bundled sample and flag for UX messaging
+            st.session_state["used_sample_input"] = True
+            df = pd.read_excel(SAMPLE_INPUT_FILE, sheet_name=INPUT_SHEET, engine="openpyxl")
     # Normalize columns and validate required fields
     df = _normalize_columns(df)
     # Coerce numerics
@@ -500,8 +511,12 @@ def style_dataframe_percent(df, pct_cols, digits=2):
         df[c] = (df[c] * 100).round(digits)
     return df
 
-def kpi_number(value: float, kind: str = "pct"):
-    # kind: "pct" -> x is decimal; "pp" -> x is already percentage points
+def kpi_number(value: float, kind: str = "pct", color: str | None = None):
+    """Return a Plotly number indicator with consistent formatting.
+
+    kind="pct" means the input is a decimal (0.034 -> 3.40%);
+    kind="pp" means the input is already in percentage points.
+    """
     if kind == "pp":
         val = value
         suffix = "pp"
@@ -514,11 +529,9 @@ def kpi_number(value: float, kind: str = "pct"):
     fig = go.Figure(go.Indicator(
         mode="number",
         value=val,
-        number={"suffix": suffix, "valueformat": vf},
-        # Avoid Plotly showing 'undefined' when no title is provided
-        title={"text": ""}
+        number={"suffix": suffix, "valueformat": vf, "font": {"size": 48, "color": (color or RB_COLORS["blue"]) }},
+        title={"text": ""}  # Avoid 'undefined'
     ))
-    # No figure title; Streamlit will add our label via markdown.
     fig.update_layout(template="rubrics",
                       margin=dict(l=5, r=5, t=10, b=5),
                       height=110,
@@ -526,10 +539,35 @@ def kpi_number(value: float, kind: str = "pct"):
                       title={"text": ""})
     return apply_theme(fig)
 
+def kpi_tile(label: str,
+             value: float,
+             kind: str,
+             threshold: float | None = None,
+             good_when: str = "lte",
+             caption: str | None = None,
+             key: str | None = None):
+    """Render a KPI label + number with a small status badge if threshold provided.
+
+    good_when: "lte" means value <= threshold is good; "gte" means >= is good.
+    """
+    badge = ""
+    color = None
+    if threshold is not None:
+        is_good = (value <= threshold) if good_when == "lte" else (value >= threshold)
+        badge_color = "#0F9D58" if is_good else "#CF4520"
+        text = "Within limit" if is_good else "Over limit"
+        badge = f" <span style='background:{badge_color};color:white;padding:2px 6px;border-radius:8px;font-size:11px;'> {text} </span>"
+        color = RB_COLORS["blue"] if is_good else "#CF4520"
+    st.markdown(f"**{label}**{badge}", unsafe_allow_html=True)
+    st.plotly_chart(kpi_number(value, kind=kind, color=color), use_container_width=True, config=plotly_default_config, key=key)
+    if caption:
+        st.caption(caption)
+
 def bar_allocation(df, weights, title):
     ser = pd.Series(weights, index=df["Name"]).sort_values(ascending=False)
-    fig = go.Figure(go.Bar(x=ser.index, y=ser.values))
+    fig = go.Figure(go.Bar(x=ser.index, y=ser.values, hovertemplate="%{y:.2%} — %{x}<extra></extra>"))
     fig.update_layout(title=title, xaxis_title="Segment", yaxis_title="Weight", height=380, margin=dict(l=10,r=10,t=40,b=80))
+    fig.update_yaxes(tickformat=".0%")
     return apply_theme(fig)
 
 def exposures_vs_budgets(df, weights, budgets: dict, title: str):
@@ -544,17 +582,17 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
         "sDV01 HY": float(np.sum(oasd * weights * (~is_ig_mask))),
     }
     x = list(vals.keys()); y = list(vals.values())
-    fig = go.Figure(go.Bar(x=x, y=y))
+    fig = go.Figure(go.Bar(x=x, y=y, hovertemplate="%{y:.2f} yrs — %{x}<extra></extra>"))
     # Budget lines (only those that map)
     fig.add_hline(y=budgets.get("limit_krd10y", 0.75), line_dash="dot", annotation_text="KRD10y cap", annotation_position="top left")
     fig.add_hline(y=budgets.get("limit_sdv01_ig", 3.0), line_dash="dot", annotation_text="sDV01 IG cap", annotation_position="bottom left")
     fig.add_hline(y=budgets.get("limit_sdv01_hy", 1.5), line_dash="dot", annotation_text="sDV01 HY cap", annotation_position="bottom left")
     fig.add_hline(y=budgets.get("limit_twist", 0.40), line_dash="dot", annotation_text="Twist cap", annotation_position="bottom left")
-    fig.update_layout(title=title, height=300, margin=dict(l=10,r=10,t=40,b=20))
+    fig.update_layout(title=title, height=300, margin=dict(l=10,r=10,t=40,b=20), yaxis_title="Years")
     return apply_theme(fig)
 
 def scenario_histogram(port_pnl, title="Scenario P&L (1M)"):
-    fig = go.Figure(data=[go.Histogram(x=port_pnl * 100, nbinsx=40)])
+    fig = go.Figure(data=[go.Histogram(x=port_pnl * 100, nbinsx=40, hovertemplate="%{x:.2f}%<extra></extra>")])
     var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
     fig.add_vline(x=-var99 * 100, line_dash="dash", annotation_text="VaR99", annotation_position="top left")
     fig.add_vline(x=-cvar99 * 100, line_dash="dot", annotation_text="CVaR99", annotation_position="top left")
@@ -628,8 +666,11 @@ Changing a slider updates the optimisation and the charts so you can see the imp
 
 # File input
 with st.expander("Data source (Excel) • required columns: Segment_ID, Name, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Credit_Quality, Instrument_Type, Include", expanded=False):
-    upload = st.file_uploader("Upload Optimiser_Input_Final_v3.xlsx (sheet Optimiser_Input)", type=["xlsx"], accept_multiple_files=False)
-    st.write("If no file is uploaded, the app will try to read:", f"`{DEFAULT_INPUT_FILE}`")
+    upload = st.file_uploader(
+        "Upload portfolio input file (sheet 'Optimiser_Input')",
+        type=["xlsx"], accept_multiple_files=False,
+        help="Provide the latest portfolio universe and factor data. If omitted, the app will load a bundled sample to demonstrate functionality.")
+    st.write("If no file is uploaded, the app will try to read:", f"`{DEFAULT_INPUT_FILE}` (falls back to `{SAMPLE_INPUT_FILE}` if not found)")
 
 # Load data
 try:
@@ -637,6 +678,9 @@ try:
 except Exception as e:
     st.error(f"Failed to load input: {e}")
     st.stop()
+
+if st.session_state.get("used_sample_input"):
+    st.info("No enterprise input file found. Loaded bundled sample data instead so you can explore the dashboard. Upload your Excel to run on live data.")
 
 if len(df) == 0:
     st.error("No rows found after applying Include==True. Please check the input file.")
@@ -691,7 +735,7 @@ with st.sidebar:
             st.warning("Prev weights CSV must have columns [Segment or Name, Weight].")
 
     st.subheader("Display options")
-    min_weight_display = st.slider("Hide weights below", 0.0, 0.01, 0.001, 0.0005, format="%.3f")
+    min_weight_display = st.slider("Hide weights below", 0.0, 0.01, 0.001, 0.0005, format="%.3f", help="Weights smaller than this threshold are hidden in charts to keep visuals readable.")
 
 # Prepare scenarios
 mc = simulate_mc_draws(int(n_draws), int(seed), dict(RATES_BP99), dict(SPREAD_BP99))
@@ -739,7 +783,11 @@ with tab_overview:
 **Tip:** Tightening budgets or VaR caps usually lowers expected return but improves downside risk. Raising them does the opposite.
 """
         )
-    objective = st.selectbox("Objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0, key="overview_obj")
+    objective = st.selectbox(
+        "Optimisation objective",
+        ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"],
+        index=0, key="overview_obj",
+        help="Select how the optimiser prioritises return versus downside risk.")
 
     # Run funds
     fund_outputs = {}
@@ -759,15 +807,23 @@ with tab_overview:
         if f in fund_outputs:
             m,_ = fund_outputs[f]
             with cols[idx]:
-                st.markdown(f"**{f} – Expected Return**")
-                st.plotly_chart(kpi_number(m["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_er")
-
-                st.markdown(f"**{f} – VaR99 1M**")
-                st.plotly_chart(kpi_number(m["VaR99_1M"], kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_var")
-
                 cap = VAR99_CAP[f]
-                status = "✅ within cap" if m["VaR99_1M"] <= cap else "❌ over cap"
-                st.caption(f"VaR cap {cap*100:.2f}% — {status}")
+                kpi_tile(
+                    label=f"{f} – Expected Return (annualised)",
+                    value=m["ExpRet_pct"],
+                    kind="pp",
+                    key=f"kpi_{f}_er"
+                )
+
+                kpi_tile(
+                    label=f"{f} – VaR99 (1‑month)",
+                    value=m["VaR99_1M"],
+                    kind="pct",
+                    threshold=cap,
+                    good_when="lte",
+                    caption=f"Policy limit {cap*100:.2f}%",
+                    key=f"kpi_{f}_var"
+                )
             idx += 1
     # Aggregate (equal-weight of funds that solved)
     if len(fund_outputs) > 0:
@@ -777,11 +833,8 @@ with tab_overview:
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
         er_agg_pp = float(mu @ agg_weights) * 100.0
         with cols[3]:
-            st.markdown("**Aggregate – Expected Return**")
-            st.plotly_chart(kpi_number(er_agg_pp, kind="pp"), use_container_width=True, config=plotly_default_config, key="kpi_agg_er")
-
-            st.markdown("**Aggregate – VaR99 1M**")
-            st.plotly_chart(kpi_number(var99_agg, kind="pct"), use_container_width=True, config=plotly_default_config, key="kpi_agg_var")
+            kpi_tile("Aggregate – Expected Return (annualised)", er_agg_pp, kind="pp", key="kpi_agg_er")
+            kpi_tile("Aggregate – VaR99 (1‑month)", var99_agg, kind="pct", key="kpi_agg_var")
 
     spacer(1)
     # Allocation by segment (stacked bars)
@@ -799,8 +852,8 @@ with tab_overview:
     for col in alloc_df.columns:
         y = alloc_df[col].values
         y = np.where(np.abs(y) < min_weight_display, 0.0, y)
-        color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}.get(col, None)
-        fig_alloc.add_bar(name=col, x=alloc_df.index, y=y, marker_color=color)
+        color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}.get(col, RB_COLORS["blue"]) 
+        fig_alloc.add_bar(name=col, x=alloc_df.index, y=y, marker_color=color, hovertemplate="%{y:.2%} — %{x}<extra></extra>")
     fig_alloc.update_layout(barmode="group", height=380, margin=dict(l=10,r=10,t=40,b=80), xaxis_title="Segment", yaxis_title="Weight")
     st.plotly_chart(fig_alloc, use_container_width=True)
 
@@ -817,9 +870,10 @@ with tab_overview:
                 "Twist(30-2)": float((df["KRD_30y"].values - df["KRD_2y"].values) @ w),
                 "sDV01": float(df["OASD_Years"].values @ w),
             }
-            fig_fb.add_bar(name=f" {f} KRD10y", x=["KRD10y"], y=[vals["KRD10y"]])
-            fig_fb.add_bar(name=f" {f} Twist", x=["Twist(30-2)"], y=[vals["Twist(30-2)"]])
-            fig_fb.add_bar(name=f" {f} sDV01", x=["sDV01"], y=[vals["sDV01"]])
+            fund_color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"]}[f]
+            fig_fb.add_bar(name=f" {f} KRD10y", x=["KRD10y"], y=[vals["KRD10y"]], marker_color=fund_color, hovertemplate="%{y:.2f} yrs<extra></extra>")
+            fig_fb.add_bar(name=f" {f} Twist", x=["Twist(30-2)"], y=[vals["Twist(30-2)"]], marker_color=fund_color, hovertemplate="%{y:.2f} yrs<extra></extra>")
+            fig_fb.add_bar(name=f" {f} sDV01", x=["sDV01"], y=[vals["sDV01"]], marker_color=fund_color, hovertemplate="%{y:.2f} yrs<extra></extra>")
     fig_fb.update_layout(barmode="group", height=300, margin=dict(l=10,r=10,t=40,b=20))
     st.plotly_chart(fig_fb, use_container_width=True)
 
@@ -845,8 +899,8 @@ with tab_fund:
     c0, c1 = st.columns([1,2])
     with c0:
         fund = st.selectbox("Fund", ["GFI","GCF","EYF"], index=0, help="Choose which fund’s caps and budgets to tune and optimise.")
-        objective = st.selectbox("Objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0, help="Select the optimiser target for this fund only.")
-        var_cap = st.slider(f"{fund} monthly VaR99 cap (%)", 0.0, 15.0, float(VAR99_CAP[fund]*100), 0.1) / 100.0
+        objective = st.selectbox("Optimisation objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0, help="Select the optimiser target for this fund only.")
+        var_cap = st.slider(f"{fund} policy limit: VaR99 (1‑month, %)", 0.0, 15.0, float(VAR99_CAP[fund]*100), 0.1, help="Set the risk limit used by the optimiser. The model constrains CVaR slightly above this level for robustness.") / 100.0
         st.write("Prospectus caps:")
         fc = FUND_CONSTRAINTS[fund]
         # Show & allow temporary overrides
@@ -891,17 +945,13 @@ with tab_fund:
         var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
         cols = st.columns(4)
         with cols[0]:
-            st.markdown("**Expected Return (ann.)**")
-            st.plotly_chart(kpi_number(metrics["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_er")
+            kpi_tile("Expected Return (annualised)", metrics["ExpRet_pct"], kind="pp", key=f"kpi_{fund}_detail_er")
         with cols[1]:
-            st.markdown("**VaR99 1M**")
-            st.plotly_chart(kpi_number(var99, kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_var")
+            kpi_tile("VaR99 (1‑month)", var99, kind="pct", threshold=var_cap, good_when="lte", caption=f"Policy limit {var_cap*100:.2f}%", key=f"kpi_{fund}_detail_var")
         with cols[2]:
-            st.markdown("**CVaR99 1M**")
-            st.plotly_chart(kpi_number(cvar99, kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_cvar")
+            kpi_tile("CVaR99 (1‑month)", cvar99, kind="pct", key=f"kpi_{fund}_detail_cvar")
         with cols[3]:
-            st.markdown("**Portfolio Yield**")
-            st.plotly_chart(kpi_number(metrics["Yield_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_yield")
+            kpi_tile("Portfolio Yield", metrics["Yield_pct"], kind="pp", key=f"kpi_{fund}_detail_yield")
 
         cap = var_cap
         status = "✅ within cap" if var99 <= cap else "❌ over cap"
