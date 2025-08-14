@@ -1,3 +1,10 @@
+[theme]
+primaryColor = "#001E4F"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F8FB"
+textColor = "#001E4F"
+font = "sans serif"
+
 
 # Rubrics Fixed Income Optimiser (Streamlit)
 # ------------------------------------------
@@ -18,6 +25,37 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.io as pio
+# --- Rubrics branding ---
+BRAND = {
+    "blue":  "#001E4F",
+    "mblue": "#2C5697",
+    "lblue": "#7BA4DB",
+    "grey":  "#D8D7DF",
+    "orange":"#CF4520",
+}
+FUND_COLOURS = {"GFI": BRAND["blue"], "GCF": BRAND["mblue"], "EYF": BRAND["lblue"], "Aggregate": BRAND["grey"]}
+
+def _load_css():
+    try:
+        with open("assets/styles/theme.css", "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except Exception:
+        pass
+
+_load_css()
+
+# Plotly rubrics template
+brand_template = go.layout.Template(
+    layout=go.Layout(
+        colorway=[BRAND["blue"], BRAND["mblue"], BRAND["lblue"], BRAND["grey"], BRAND["orange"]],
+        font=dict(family="Ringside, Segoe UI, Arial, sans-serif"),
+        title=dict(font=dict(size=16)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=10, r=10, t=40, b=40),
+    )
+)
+pio.templates["rubrics"] = brand_template
+pio.templates.default = "rubrics"
 # ----- Rubrics brand palette & theming -----
 RB_COLORS = {
     "blue": "#001E4F",      # Rubrics Blue
@@ -456,14 +494,35 @@ def solve_portfolio(df: pd.DataFrame,
 # 4) Visuals
 # -----------------------------
 
-def gauge_metric(title: str, value: float, suffix: str = "%"):
+def fmt_pct(x, digits=2):
+    return f"{x*100:.{digits}f}%"
+
+def fmt_pp(x, digits=2):
+    return f"{x:.{digits}f}pp"
+
+def style_dataframe_percent(df, pct_cols, digits=2):
+    df = df.copy()
+    for c in pct_cols:
+        df[c] = (df[c] * 100).round(digits)
+    return df
+
+def kpi_number(title: str, value: float, kind: str = "pct"):
+    # kind: "pct" -> x is decimal; "pp" -> x is already percent points
+    if kind == "pp":
+        val = value
+        suffix = "pp"
+        vf = ".2f"
+    else:
+        val = value * 100
+        suffix = "%"
+        vf = ".2f"
     fig = go.Figure(go.Indicator(
         mode="number",
-        value=value * (100 if suffix=="%" else 1),
+        value=val,
         title={"text": title},
-        number={"suffix": suffix, "valueformat": ".2f"}
+        number={"suffix": suffix, "valueformat": vf}
     ))
-    fig.update_layout(margin=dict(l=5,r=5,t=30,b=5), height=110)
+    fig.update_layout(template="rubrics", margin=dict(l=5,r=5,t=30,b=5), height=110)
     return apply_theme(fig)
 
 def bar_allocation(df, weights, title):
@@ -547,8 +606,24 @@ def heatmap_funds_losses(fund_results: dict):
 # -----------------------------
 
 st.title("Rubrics Fixed Income Optimiser")
-st.caption("Forward-looking allocation with carry/roll expected returns, KRD/sDV01 factor risk, and fund-specific prospectus constraints.")
+st.caption("Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk, Monte‑Carlo VaR, and fund‑specific prospectus caps.")
 spacer(1)
+
+with st.expander("❓ How this optimiser works & what the controls do", expanded=False):
+    st.markdown(
+        """
+- **Objective**: chooses the optimisation target (e.g., *Max Return*, *Max Sharpe*).
+- **Expected return (pp)**: carry + 1‑year roll‑down. “pp” = percentage points.
+- **VaR/CVaR (monthly, 99%)**: simulated 1‑month loss tail using rate/spread shocks.
+- **Factor budgets**:
+  - **KRD** (Key Rate Duration): rate sensitivity at selected maturities.
+  - **Twist (30y–2y)**: steepener/flattening exposure budget.
+  - **sDV01 IG/HY**: credit spread duration (IG vs Non‑IG sleeves).
+- **Prospectus caps**: hard limits per fund (Non‑IG, EM, Hybrid, AT1, Cash).
+- **Turnover**: limits change per rebalance and applies a penalty (in bps per 100% turnover).
+Changing a slider updates the optimisation and the charts so you can see the impact immediately.
+"""
+    )
 
 # File input
 with st.expander("Data source (Excel) • required columns: Segment_ID, Name, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Credit_Quality, Instrument_Type, Include", expanded=False):
@@ -572,32 +647,32 @@ tags = tag_segments(df)
 with st.sidebar:
     st.header("Global Settings")
     seed = st.number_input("Random seed", min_value=0, value=42, step=1)
-    n_draws = st.number_input("Monte Carlo draws (monthly)", min_value=200, max_value=10000, value=2000, step=100)
+    n_draws = st.number_input("Monte Carlo draws (monthly)", min_value=200, max_value=10000, value=2000, step=100, help="Number of monthly scenarios used to estimate VaR/CVaR; more = smoother but slower.")
     st.write("Rate shocks (bp @99%):")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: RATES_BP99["2y"] = st.number_input("2y", value=float(RATES_BP99["2y"]))
+    with c1: RATES_BP99["2y"] = st.number_input("2y", value=float(RATES_BP99["2y"]), help="Approximate 99th‑percentile monthly rate change in basis points at each key rate.")
     with c2: RATES_BP99["5y"] = st.number_input("5y", value=float(RATES_BP99["5y"]))
     with c3: RATES_BP99["10y"] = st.number_input("10y", value=float(RATES_BP99["10y"]))
     with c4: RATES_BP99["30y"] = st.number_input("30y", value=float(RATES_BP99["30y"]))
 
     st.write("Spread widenings (bp @99%):")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: SPREAD_BP99["IG"]  = st.number_input("IG", value=float(SPREAD_BP99["IG"]))
+    with c1: SPREAD_BP99["IG"]  = st.number_input("IG", value=float(SPREAD_BP99["IG"]), help="Approximate 99th‑percentile monthly spread widening (bp) for each sleeve.")
     with c2: SPREAD_BP99["HY"]  = st.number_input("HY", value=float(SPREAD_BP99["HY"]))
     with c3: SPREAD_BP99["AT1"] = st.number_input("AT1", value=float(SPREAD_BP99["AT1"]))
     with c4: SPREAD_BP99["EM"]  = st.number_input("EM", value=float(SPREAD_BP99["EM"]))
 
     st.divider()
     st.subheader("Default Factor Budgets")
-    limit_krd10y = st.number_input("|KRD 10y| cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_krd10y"], step=0.05, format="%.2f")
-    limit_twist  = st.number_input("|KRD 30y − 2y| cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_twist"], step=0.05, format="%.2f")
-    limit_sdv01_ig = st.number_input("sDV01 IG cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_ig"], step=0.1, format="%.1f")
-    limit_sdv01_hy = st.number_input("sDV01 HY cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_hy"], step=0.1, format="%.1f")
+    limit_krd10y = st.number_input("|KRD 10y| cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_krd10y"], step=0.05, format="%.2f", help="Limit to 10y interest‑rate exposure (in duration years) for the portfolio.")
+    limit_twist  = st.number_input("Twist (30y–2y) cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_twist"], step=0.05, format="%.2f", help="Twist exposure: how much steepener/flattening risk is allowed.")
+    limit_sdv01_ig = st.number_input("sDV01 IG cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_ig"], step=0.1, format="%.1f", help="Spread DV01 budget for Investment Grade sleeves.")
+    limit_sdv01_hy = st.number_input("sDV01 HY cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_hy"], step=0.1, format="%.1f", help="Spread DV01 budget for Non‑IG sleeves (HY/EM/AT1).")
 
     st.divider()
     st.subheader("Turnover")
-    penalty_bps = st.number_input("Penalty (bps per 100% turnover)", value=TURNOVER_DEFAULTS["penalty_bps_per_100"], step=1.0)
-    max_turn = st.slider("Max turnover per rebalance", 0.0, 1.0, TURNOVER_DEFAULTS["max_turnover"], 0.01)
+    penalty_bps = st.number_input("Penalty (bps per 100% turnover)", value=TURNOVER_DEFAULTS["penalty_bps_per_100"], step=1.0, help="Transaction cost / frictions applied to changes in weights.")
+    max_turn = st.slider("Max turnover per rebalance", 0.0, 1.0, TURNOVER_DEFAULTS["max_turnover"], 0.01, help="Hard cap on total absolute change in portfolio weights.")
 
     st.subheader("Previous Weights (optional)")
     prev_file = st.file_uploader("CSV with columns [Segment or Name, Weight]", type=["csv"], key="prev_weights")
@@ -650,7 +725,19 @@ tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail (Tune
 # Overview Tab: run each fund with its own VaR cap and defaults
 # -----------------------------
 with tab_overview:
-    st.subheader("Cross-fund positioning and risk")
+    st.subheader("Compare Funds: positioning & risk")
+    with st.expander("What these controls and charts mean"):
+        st.markdown(
+            """
+**Objective** – chooses the optimiser’s target.  
+**Expected Return** – annualised carry + 1y roll‑down (pp).  
+**VaR/CVaR (1M)** – 99% tail metrics from monthly Monte Carlo scenarios.  
+**Factor budgets** – caps on interest‑rate key‑rate exposures and spread duration (years).  
+**Prospectus caps** – hard limits specific to each fund (Non‑IG, EM, AT1, Hybrid, Cash).  
+
+**Tip:** Tightening budgets or VaR caps usually lowers expected return but improves downside risk. Raising them does the opposite.
+"""
+        )
     objective = st.selectbox("Objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0, key="overview_obj")
 
     # Run funds
@@ -671,8 +758,8 @@ with tab_overview:
         if f in fund_outputs:
             m,_ = fund_outputs[f]
             with cols[idx]:
-                st.plotly_chart(gauge_metric(f"{f} – Expected Return", m["ExpRet_pct"], suffix="pp"), use_container_width=True)
-                st.plotly_chart(gauge_metric(f"{f} – VaR99 1M", m["VaR99_1M"]), use_container_width=True)
+                st.plotly_chart(kpi_number(f"{f} – Expected Return", m["ExpRet_pct"], kind="pp"), use_container_width=True)
+                st.plotly_chart(kpi_number(f"{f} – VaR99 1M", m["VaR99_1M"], kind="pct"), use_container_width=True)
                 cap = VAR99_CAP[f]
                 status = "✅ within cap" if m["VaR99_1M"] <= cap else "❌ over cap"
                 st.caption(f"VaR cap {cap*100:.2f}% — {status}")
@@ -685,8 +772,8 @@ with tab_overview:
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
         er_agg_pp = float(mu @ agg_weights) * 100.0
         with cols[3]:
-            st.plotly_chart(gauge_metric("Aggregate – Expected Return", er_agg_pp, suffix="pp"), use_container_width=True)
-            st.plotly_chart(gauge_metric("Aggregate – VaR99 1M", var99_agg), use_container_width=True)
+            st.plotly_chart(kpi_number("Aggregate – Expected Return", er_agg_pp, kind="pp"), use_container_width=True)
+            st.plotly_chart(kpi_number("Aggregate – VaR99 1M", var99_agg, kind="pct"), use_container_width=True)
 
     spacer(1)
     # Allocation by segment (stacked bars)
@@ -699,12 +786,13 @@ with tab_overview:
         alloc_df["Aggregate"] = agg_weights
     alloc_df = alloc_df.fillna(0.0)
     alloc_df = alloc_df.mask(alloc_df.abs() < min_weight_display, other=0.0)
-    st.dataframe(alloc_df.sort_index(), use_container_width=True, height=260)
+    st.dataframe(alloc_df.sort_index().style.format("{:.2%}"), use_container_width=True, height=260)
     fig_alloc = go.Figure()
     for col in alloc_df.columns:
         y = alloc_df[col].values
         y = np.where(np.abs(y) < min_weight_display, 0.0, y)
-        fig_alloc.add_bar(name=col, x=alloc_df.index, y=y)
+        color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}.get(col, None)
+        fig_alloc.add_bar(name=col, x=alloc_df.index, y=y, marker_color=color)
     fig_alloc.update_layout(barmode="group", height=380, margin=dict(l=10,r=10,t=40,b=80), xaxis_title="Segment", yaxis_title="Weight")
     st.plotly_chart(fig_alloc, use_container_width=True)
 
@@ -748,17 +836,17 @@ with tab_overview:
 with tab_fund:
     c0, c1 = st.columns([1,2])
     with c0:
-        fund = st.selectbox("Fund", ["GFI","GCF","EYF"], index=0)
-        objective = st.selectbox("Objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0)
+        fund = st.selectbox("Fund", ["GFI","GCF","EYF"], index=0, help="Choose which fund’s caps and budgets to tune and optimise.")
+        objective = st.selectbox("Objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0, help="Select the optimiser target for this fund only.")
         var_cap = st.slider(f"{fund} monthly VaR99 cap (%)", 0.0, 15.0, float(VAR99_CAP[fund]*100), 0.1) / 100.0
         st.write("Prospectus caps:")
         fc = FUND_CONSTRAINTS[fund]
         # Show & allow temporary overrides
-        max_non_ig = st.slider("Max Non‑IG weight", 0.0, 1.0, float(fc.get("max_non_ig",1.0)), 0.01)
-        max_em     = st.slider("Max EM weight",     0.0, 1.0, float(fc.get("max_em",1.0)),     0.01)
-        max_hybrid = st.slider("Max Hybrid weight", 0.0, 1.0, float(fc.get("max_hybrid",1.0)) if "max_hybrid" in fc else 0.0, 0.01)
-        max_cash   = st.slider("Max Cash weight",   0.0, 1.0, float(fc.get("max_cash",1.0)),   0.01)
-        max_at1    = st.slider("Max AT1 weight",    0.0, 1.0, float(fc.get("max_at1",1.0)),    0.01)
+        max_non_ig = st.slider("Max Non‑IG weight", 0.0, 1.0, float(fc.get("max_non_ig",1.0)), 0.01, help="Includes HY ratings, EM hard‑currency, and Bank Capital (AT1/T2).")
+        max_em     = st.slider("Max EM weight",     0.0, 1.0, float(fc.get("max_em",1.0)),     0.01, help="EM hard‑currency sleeve only.")
+        max_hybrid = st.slider("Max Hybrid weight", 0.0, 1.0, float(fc.get("max_hybrid",1.0)) if "max_hybrid" in fc else 0.0, 0.01, help="Global Hybrid sleeve only.")
+        max_cash   = st.slider("Max Cash weight",   0.0, 1.0, float(fc.get("max_cash",1.0)),   0.01, help="US T‑Bills sleeve; caps cash balance.")
+        max_at1    = st.slider("Max AT1 weight",    0.0, 1.0, float(fc.get("max_at1",1.0)),    0.01, help="Bank Additional Tier‑1 sleeve (per prospectus restrictions).")
 
         # Build a temporary override dict (used only in this tab run). Backup and restore afterwards
         _fc_backup = FUND_CONSTRAINTS[fund].copy()
@@ -767,10 +855,10 @@ with tab_fund:
             FUND_CONSTRAINTS[fund]["max_hybrid"] = max_hybrid
 
         st.write("Factor budgets (yrs):")
-        lk = st.number_input("|KRD 10y| cap", value=limit_krd10y, step=0.05, format="%.2f")
-        lt = st.number_input("|KRD 30y − 2y| cap", value=limit_twist, step=0.05, format="%.2f")
-        lig = st.number_input("sDV01 IG cap", value=limit_sdv01_ig, step=0.1, format="%.1f")
-        lhy = st.number_input("sDV01 HY cap", value=limit_sdv01_hy, step=0.1, format="%.1f")
+        lk = st.number_input("|KRD 10y| cap", value=limit_krd10y, step=0.05, format="%.2f", help="Limit to 10y interest‑rate exposure (in duration years) for the portfolio.")
+        lt = st.number_input("Twist (30y–2y) cap", value=limit_twist, step=0.05, format="%.2f", help="Twist exposure: how much steepener/flattening risk is allowed.")
+        lig = st.number_input("sDV01 IG cap", value=limit_sdv01_ig, step=0.1, format="%.1f", help="Spread DV01 budget for Investment Grade sleeves.")
+        lhy = st.number_input("sDV01 HY cap", value=limit_sdv01_hy, step=0.1, format="%.1f", help="Spread DV01 budget for Non‑IG sleeves (HY/EM/AT1).")
 
         fb_over = {"limit_krd10y": lk, "limit_twist": lt, "limit_sdv01_ig": lig, "limit_sdv01_hy": lhy}
 
@@ -794,10 +882,10 @@ with tab_fund:
         port_pnl = pnl_matrix_assets @ w
         var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
         cols = st.columns(4)
-        with cols[0]: st.plotly_chart(gauge_metric("Expected Return (ann.)", metrics["ExpRet_pct"], suffix="pp"), use_container_width=True)
-        with cols[1]: st.plotly_chart(gauge_metric("VaR99 1M", var99), use_container_width=True)
-        with cols[2]: st.plotly_chart(gauge_metric("CVaR99 1M", cvar99), use_container_width=True)
-        with cols[3]: st.plotly_chart(gauge_metric("Portfolio Yield", metrics["Yield_pct"], suffix="pp"), use_container_width=True)
+        with cols[0]: st.plotly_chart(kpi_number("Expected Return (ann.)", metrics["ExpRet_pct"], kind="pp"), use_container_width=True)
+        with cols[1]: st.plotly_chart(kpi_number("VaR99 1M", var99, kind="pct"), use_container_width=True)
+        with cols[2]: st.plotly_chart(kpi_number("CVaR99 1M", cvar99, kind="pct"), use_container_width=True)
+        with cols[3]: st.plotly_chart(kpi_number("Portfolio Yield", metrics["Yield_pct"], kind="pp"), use_container_width=True)
 
         cap = var_cap
         status = "✅ within cap" if var99 <= cap else "❌ over cap"
