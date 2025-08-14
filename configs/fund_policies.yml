@@ -1,0 +1,34 @@
+# Optional external policy file — not yet consumed by app.py (hard-coded defaults inside the app).
+# Keep this here to document and prepare for v2 externalised policies.
+fund_constraints:
+  GFI:
+    max_non_ig: 0.25
+    max_em: 0.30
+    max_hybrid: 0.15
+    max_cash: 0.20
+    max_at1: 0.15
+  GCF:
+    max_non_ig: 0.10
+    max_em: 0.35
+    max_cash: 0.20
+    max_at1: 0.10
+  EYF:
+    max_non_ig: 1.00
+    max_em: 1.00
+    max_cash: 0.20
+    max_at1: 0.00
+
+var99_1m_cap:
+  GFI: 0.050
+  GCF: 0.055
+  EYF: 0.100
+
+factor_budgets:
+  limit_krd10y: 0.75
+  limit_twist: 0.40
+  limit_sdv01_ig: 3.0
+  limit_sdv01_hy: 1.5
+
+turnover:
+  penalty_bps_per_100: 15.0
+  max_turnover: 0.25

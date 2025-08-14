@@ -1,0 +1,11 @@
+streamlit>=1.37
+pandas>=2.2
+numpy>=1.26
+plotly>=5.20
+cvxpy>=1.5
+osqp>=0.6.5
+openpyxl>=3.1
+pytest>=8.2
+ruff>=0.5
+black>=24.4
+isort>=5.13

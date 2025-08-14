@@ -1,0 +1,7 @@
+Segment_ID,Name,Bloomberg_Ticker,Instrument_Type,Credit_Quality,Maturity_Bucket,Rates_Currency,Sector,Yield_Hedged_To,Rates_Hedge_Convention,Yield_Local_Pct,FX_Hedge_Cost_bps,Yield_Hedged_Pct,OAS_bps,Z_Spread_bps,Roll_Down_bps_1Y,OAD_Years,OASD_Years,Convexity,KRD_2y,KRD_5y,KRD_10y,KRD_30y,Include
+USD_TBILLS,US T-Bills,I31914US INDEX,Cash,Gov,Cash,USD,Bills,USD,FXFwdOnly,5.0,0.0,5.0,0,0,0,0.05,0.0,0.0,0.0,0.0,0.0,0.0,True
+USD_CORP_IG_3_5,US Corp 3-5,BUS3TRUU INDEX,Corporate,IG,3-5,USD,Broad,USD,FXFwdOnly,5.8,0.0,5.8,95,110,20,4.2,3.8,0.1,0.2,0.9,2.8,0.3,True
+USD_CORP_BB_ALL,US Corp BB,I00182US INDEX,Corporate,BB,All,USD,Broad,USD,FXFwdOnly,7.2,0.0,7.2,260,300,10,4.8,4.5,0.12,0.1,0.6,3.5,0.6,True
+BANK_AT1_GLOBAL,Bank AT1,H31415US INDEX,BankCapital,HY,All,MULTI,Financials,USD,FXFwdOnly,9.5,0.0,9.5,450,500,15,5.2,5.0,0.25,0.0,0.4,3.0,1.0,True
+EM_USD_AGG,EM HC,EMUSTRUU INDEX,EM,Mix,All,USD,Sov+Corp,USD,FXFwdOnly,7.8,0.0,7.8,300,320,12,6.8,6.0,0.18,0.1,0.5,4.5,1.4,True
+USD_TREAS_AGG,US Agg Treasury,LUATTRUU INDEX,Sovereign,Gov,All,USD,Treasury,USD,FXFwdOnly,4.4,0.0,4.4,0,0,10,6.5,0.0,0.02,0.6,1.5,3.8,0.7,True
