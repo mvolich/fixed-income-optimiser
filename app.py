@@ -38,8 +38,26 @@ def inject_brand_css():
       html, body, [class*="css"] { font-family: "Ringside", Inter, "Segoe UI", Roboto, Arial, sans-serif; }
       .stTabs [data-baseweb="tab-list"]{ border-bottom:1px solid var(--rb-grey); }
       .stTabs [data-baseweb="tab-highlight"]{ background:var(--rb-blue); }
+
+      /* --- tooltip title row for charts/tables/KPIs --- */
+      .rb-title { display:flex; align-items:center; justify-content:space-between; margin: .4rem 0 .2rem 0; }
+      .rb-title .rb-label { font-weight:600; color: var(--rb-blue); }
+      .rb-help { color: var(--rb-mblue); cursor: help; font-weight:700; user-select:none; }
+      .rb-help:hover { color: var(--rb-orange); }
     </style>
     """, unsafe_allow_html=True)
+
+def title_with_help(label: str, help_text: str):
+    """Renders a label with a right-aligned 'ⓘ' native tooltip (title attr)."""
+    st.markdown(
+        f'<div class="rb-title"><div class="rb-label">{label}</div>'
+        f'<div class="rb-help" title="{help_text}">ⓘ</div></div>',
+        unsafe_allow_html=True
+    )
+
+def impact_text(increase: str, decrease: str) -> str:
+    """Helper to summarise impact of increasing/decreasing a control."""
+    return f" Increasing this: {increase}. Decreasing this: {decrease}."
 
 BRAND_TEMPLATE = go.layout.Template(
     layout=go.Layout(
@@ -567,33 +585,93 @@ tags = tag_segments(df)
 # Controls (global)
 with st.sidebar:
     st.header("Global Settings")
-    seed = st.number_input("Random seed", min_value=0, value=42, step=1)
-    n_draws = st.number_input("Monte Carlo draws (monthly)", min_value=200, max_value=10000, value=2000, step=100, help="Number of monthly scenarios used to estimate VaR/CVaR; more = smoother but slower.")
+    seed = st.number_input(
+        "Random seed", min_value=0, value=42, step=1,
+        help="Sets the random-number seed so results are reproducible." +
+             impact_text("changes the exact scenarios drawn (numbers may nudge)",
+                         "does not change the underlying distribution")
+    )
+    n_draws = st.number_input(
+        "Monte Carlo draws (monthly)", min_value=200, max_value=10000, value=2000, step=100,
+        help="Number of one‑month scenarios used to estimate VaR/CVaR. " +
+             impact_text("smoother/steadier risk estimates but slower",
+                         "faster runs but risk estimates are noisier")
+    )
     st.write("Rate shocks (bp @99%):")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: RATES_BP99["2y"] = st.number_input("2y", value=float(RATES_BP99["2y"]), help="Approximate 99th‑percentile monthly rate change in basis points at each key rate.")
-    with c2: RATES_BP99["5y"] = st.number_input("5y", value=float(RATES_BP99["5y"]))
-    with c3: RATES_BP99["10y"] = st.number_input("10y", value=float(RATES_BP99["10y"]))
-    with c4: RATES_BP99["30y"] = st.number_input("30y", value=float(RATES_BP99["30y"]))
+    with c1: RATES_BP99["2y"] = st.number_input("2y", value=float(RATES_BP99["2y"]),
+        help="99th‑percentile monthly move in 2y yields (bp). " +
+             impact_text("raises tail-rate risk & typically raises VaR",
+                         "reduces tail-rate risk & typically lowers VaR"))
+    with c2: RATES_BP99["5y"] = st.number_input("5y", value=float(RATES_BP99["5y"]),
+        help="99th‑percentile monthly move in 5y yields (bp). " +
+             impact_text("raises tail-rate risk & typically raises VaR",
+                         "reduces tail-rate risk & typically lowers VaR"))
+    with c3: RATES_BP99["10y"] = st.number_input("10y", value=float(RATES_BP99["10y"]),
+        help="99th‑percentile monthly move in 10y yields (bp). " +
+             impact_text("raises tail-rate risk & typically raises VaR",
+                         "reduces tail-rate risk & typically lowers VaR"))
+    with c4: RATES_BP99["30y"] = st.number_input("30y", value=float(RATES_BP99["30y"]),
+        help="99th‑percentile monthly move in 30y yields (bp). " +
+             impact_text("raises tail-rate risk & typically raises VaR",
+                         "reduces tail-rate risk & typically lowers VaR"))
 
     st.write("Spread widenings (bp @99%):")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: SPREAD_BP99["IG"]  = st.number_input("IG", value=float(SPREAD_BP99["IG"]), help="Approximate 99th‑percentile monthly spread widening (bp) for each sleeve.")
-    with c2: SPREAD_BP99["HY"]  = st.number_input("HY", value=float(SPREAD_BP99["HY"]))
-    with c3: SPREAD_BP99["AT1"] = st.number_input("AT1", value=float(SPREAD_BP99["AT1"]))
-    with c4: SPREAD_BP99["EM"]  = st.number_input("EM", value=float(SPREAD_BP99["EM"]))
+    with c1: SPREAD_BP99["IG"]  = st.number_input("IG", value=float(SPREAD_BP99["IG"]),
+        help="99th‑percentile monthly credit spread widening (bp) for IG assets. " +
+             impact_text("raises credit VaR/CVaR","reduces credit VaR/CVaR"))
+    with c2: SPREAD_BP99["HY"]  = st.number_input("HY", value=float(SPREAD_BP99["HY"]),
+        help="99th‑percentile monthly credit spread widening (bp) for HY assets. " +
+             impact_text("raises credit VaR/CVaR","reduces credit VaR/CVaR"))
+    with c3: SPREAD_BP99["AT1"] = st.number_input("AT1", value=float(SPREAD_BP99["AT1"]),
+        help="99th‑percentile monthly widening (bp) for Bank AT1. " +
+             impact_text("raises credit VaR/CVaR","reduces credit VaR/CVaR"))
+    with c4: SPREAD_BP99["EM"]  = st.number_input("EM", value=float(SPREAD_BP99["EM"]),
+        help="99th‑percentile monthly widening (bp) for EM hard-currency. " +
+             impact_text("raises credit VaR/CVaR","reduces credit VaR/CVaR"))
 
     st.divider()
     st.subheader("Default Factor Budgets")
-    limit_krd10y = st.number_input("|KRD 10y| cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_krd10y"], step=0.05, format="%.2f", help="Limit to 10y interest‑rate exposure (in duration years) for the portfolio.")
-    limit_twist  = st.number_input("Twist (30y–2y) cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_twist"], step=0.05, format="%.2f", help="Twist exposure: how much steepener/flattening risk is allowed.")
-    limit_sdv01_ig = st.number_input("sDV01 IG cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_ig"], step=0.1, format="%.1f", help="Spread DV01 budget for Investment Grade sleeves.")
-    limit_sdv01_hy = st.number_input("sDV01 HY cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_hy"], step=0.1, format="%.1f", help="Spread DV01 budget for Non‑IG sleeves (HY/EM/AT1).")
+    limit_krd10y = st.number_input(
+        "|KRD 10y| cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_krd10y"], step=0.05, format="%.2f",
+        help="Budget for 10‑year rate exposure (duration years). " +
+             impact_text("allows more 10y rate risk; potential for higher return and higher rate VaR",
+                         "limits 10y rate risk; can reduce expected return and lower rate VaR")
+    )
+    limit_twist  = st.number_input(
+        "Twist (30y–2y) cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_twist"], step=0.05, format="%.2f",
+        help="Steepener/Flattener exposure budget (|KRD30y−KRD2y|). " +
+             impact_text("permits larger curve-shape bets",
+                         "forces the portfolio toward curve neutrality")
+    )
+    limit_sdv01_ig = st.number_input(
+        "sDV01 IG cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_ig"], step=0.1, format="%.1f",
+        help="Credit spread duration budget for IG sleeves. " +
+             impact_text("permits more IG spread exposure; may lift carry & credit VaR",
+                         "reduces IG spread exposure; may dampen carry and lower credit VaR")
+    )
+    limit_sdv01_hy = st.number_input(
+        "sDV01 HY cap (yrs)", value=FACTOR_BUDGETS_DEFAULT["limit_sdv01_hy"], step=0.1, format="%.1f",
+        help="Credit spread duration budget for Non‑IG sleeves (HY/EM/AT1). " +
+             impact_text("permits more HY/EM/AT1 spread exposure; higher carry and higher tail risk",
+                         "limits HY/EM/AT1 risk; typically lowers VaR but may cut expected return")
+    )
 
     st.divider()
     st.subheader("Turnover")
-    penalty_bps = st.number_input("Penalty (bps per 100% turnover)", value=TURNOVER_DEFAULTS["penalty_bps_per_100"], step=1.0, help="Transaction cost / frictions applied to changes in weights.")
-    max_turn = st.slider("Max turnover per rebalance", 0.0, 1.0, TURNOVER_DEFAULTS["max_turnover"], 0.01, help="Hard cap on total absolute change in portfolio weights.")
+    penalty_bps = st.number_input(
+        "Penalty (bps per 100% turnover)", value=TURNOVER_DEFAULTS["penalty_bps_per_100"], step=1.0,
+        help="Transaction/friction penalty applied to weight changes. " +
+             impact_text("discourages large reallocations; often lowers expected return but stabilises weights",
+                         "allows larger, faster reallocations; may increase expected return and turnover")
+    )
+    max_turn = st.slider(
+        "Max turnover per rebalance", 0.0, 1.0, TURNOVER_DEFAULTS["max_turnover"], 0.01,
+        help="Hard cap on total absolute change in weights per rebalance. " +
+             impact_text("permits bigger positioning changes; might improve objective but can raise costs",
+                         "restricts rebalancing; can make problems infeasible if too low")
+    )
 
     st.subheader("Previous Weights (optional)")
     prev_file = st.file_uploader("CSV with columns [Segment or Name, Weight]", type=["csv"], key="prev_weights")
@@ -615,7 +693,12 @@ with st.sidebar:
         st.experimental_rerun()
 
     st.subheader("Display options")
-    min_weight_display = st.slider("Hide weights below", 0.0, 0.01, 0.001, 0.0005, format="%.3f")
+    min_weight_display = st.slider(
+        "Hide weights below", 0.0, 0.01, 0.001, 0.0005, format="%.3f",
+        help="Visual threshold for the allocation chart/table. " +
+             impact_text("hides more small positions to declutter",
+                         "reveals smaller positions")
+    )
 
     with st.expander("Presets", expanded=False):
         if st.button("Save current settings"):
@@ -670,19 +753,15 @@ tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail (Tune
 # -----------------------------
 with tab_overview:
     st.subheader("Compare Funds: positioning & risk")
-    with st.expander("What these controls and charts mean"):
-        st.markdown(
-            """
-**Objective** – chooses the optimiser’s target.  
-**Expected Return** – annualised carry + 1y roll‑down (%).  
-**VaR/CVaR (1M)** – 99% tail metrics from monthly Monte Carlo scenarios.  
-**Factor budgets** – caps on interest‑rate key‑rate exposures and spread duration (years).  
-**Prospectus caps** – hard limits specific to each fund (Non‑IG, EM, AT1, Hybrid, Cash).  
-
-**Tip:** Tightening budgets or VaR caps usually lowers expected return but improves downside risk. Raising them does the opposite.
-"""
-        )
-    objective = st.selectbox("Objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0, key="overview_obj")
+    objective = st.selectbox(
+        "Objective",
+        ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"],
+        index=0, key="overview_obj",
+        help=("Choose the optimiser target. Max Return ignores risk beyond hard caps; "
+              "Max Sharpe penalises CVaR; Min VaR meets a target return; Drawdown proxy minimises CVaR. ") +
+             impact_text("shifts toward risk-taking and tends to raise expected return",
+                         "tightens risk; expected return may fall")
+    )
 
     # Run funds
     fund_outputs = {}
@@ -702,10 +781,16 @@ with tab_overview:
         if f in fund_outputs:
             m,_ = fund_outputs[f]
             with cols[idx]:
-                st.markdown(f"**{f} – Expected Return**")
+                title_with_help(
+                    f"{f} – Expected Return",
+                    "Annualised carry + 1‑year roll‑down (%). Higher is better for return."
+                )
                 st.plotly_chart(kpi_number(m["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_er")
 
-                st.markdown(f"**{f} – VaR99 1M**")
+                title_with_help(
+                    f"{f} – VaR99 1M",
+                    "One‑month, 99% Value at Risk (loss). Lower is better. Compared against the fund’s VaR cap."
+                )
                 st.plotly_chart(kpi_number(m["VaR99_1M"], kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_var")
 
                 cap = VAR99_CAP[f]
@@ -713,7 +798,12 @@ with tab_overview:
                 st.caption(f"VaR cap {cap*100:.2f}% — {status}")
             idx += 1
     # Aggregate (configurable)
-    agg_mode = st.radio("Aggregate weighting:", ["Equal-weight", "By expected return (proxy AUM)"], horizontal=True)
+    agg_mode = st.radio(
+        "Aggregate weighting:", ["Equal-weight", "By expected return (proxy AUM)"], horizontal=True,
+        help=("How to combine GFI/GCF/EYF into an aggregate. Equal-weight treats funds the same; "
+              "'By expected return' tilts toward funds with higher ER.") +
+             impact_text("tilts more to high-ER fund(s)", "gives each fund equal say")
+    )
     if len(fund_outputs) > 0:
         Ws = np.vstack([fund_outputs[f][0]["weights"] for f in fund_outputs])
         if agg_mode == "Equal-weight":
@@ -726,15 +816,18 @@ with tab_overview:
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
         er_agg_pct = float(mu @ agg_weights) * 100.0
         with cols[3]:
-            st.markdown("**Aggregate – Expected Return**")
+            title_with_help("Aggregate – Expected Return", "Expected return of the equal/ER‑weighted aggregate (%).")
             st.plotly_chart(kpi_number(er_agg_pct, kind="pp"), use_container_width=True, config=plotly_default_config, key="kpi_agg_er")
 
-            st.markdown("**Aggregate – VaR99 1M**")
+            title_with_help("Aggregate – VaR99 1M", "One‑month, 99% VaR for the aggregate. Lower is better.")
             st.plotly_chart(kpi_number(var99_agg, kind="pct"), use_container_width=True, config=plotly_default_config, key="kpi_agg_var")
 
     spacer(1)
     # Allocation by segment (stacked bars)
-    st.markdown("**Allocation by segment (GFI / GCF / EYF / Aggregate)**")
+    title_with_help(
+        "Allocation by segment (GFI / GCF / EYF / Aggregate)",
+        "Weights per sleeve. Use the factor budgets, VaR caps and prospectus caps to steer these weights."
+    )
     alloc_df = pd.DataFrame(index=df["Name"])
     for f in ["GFI","GCF","EYF"]:
         if f in fund_outputs:
@@ -756,7 +849,10 @@ with tab_overview:
 
     spacer(1)
     # Factor exposures vs budgets (show KRD10, Twist, sDV01 IG/HY)
-    st.markdown("**Factor exposures vs budgets** (KRD & sDV01)")
+    title_with_help(
+        "Factor exposures vs budgets (KRD & sDV01)",
+        "Portfolio sensitivities in years with dotted lines marking budgets: |KRD 10y|, Twist(30y–2y), sDV01 IG/HY. Bars near the dotted lines mean the budget is binding."
+    )
     fig_fb = go.Figure()
     for f in ["GFI","GCF","EYF"]:
         if f in fund_outputs:
@@ -777,6 +873,10 @@ with tab_overview:
     spacer(1)
     # Scenario percentiles heatmap
     if len(fund_outputs) > 0:
+        title_with_help(
+            "Scenario Distribution by Fund (Portfolio P&L percentiles)",
+            "Each cell shows the portfolio %P&L percentile under monthly scenarios (P1…P99). Warmer colours to the right indicate stronger upside; cooler to the left indicate downside."
+        )
         z_fig = heatmap_funds_losses(fund_outputs)
         st.plotly_chart(z_fig, use_container_width=True)
 
@@ -845,16 +945,16 @@ with tab_fund:
         var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
         cols = st.columns(4)
         with cols[0]:
-            st.markdown("**Expected Return (ann.)**")
+            title_with_help("Expected Return (ann.)", "Annualised carry + roll‑down (%).")
             st.plotly_chart(kpi_number(metrics["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_er")
         with cols[1]:
-            st.markdown("**VaR99 1M**")
+            title_with_help("VaR99 1M", "One‑month, 99% Value at Risk (loss). Lower is better.")
             st.plotly_chart(kpi_number(var99, kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_var")
         with cols[2]:
-            st.markdown("**CVaR99 1M**")
+            title_with_help("CVaR99 1M", "Average loss in the worst 1% of scenarios. Lower is better.")
             st.plotly_chart(kpi_number(cvar99, kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_cvar")
         with cols[3]:
-            st.markdown("**Portfolio Yield**")
+            title_with_help("Portfolio Yield", "Yield component of return (%).")
             st.plotly_chart(kpi_number(metrics["Yield_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_yield")
 
         cap = var_cap
@@ -862,15 +962,19 @@ with tab_fund:
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
 
         # Allocation
+        title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
         st.plotly_chart(bar_allocation(df, w, f"{fund} – Allocation by Segment"), use_container_width=True)
 
         # Exposures vs budgets
+        title_with_help(f"{fund} – Factor Exposures vs Budgets", "KRD10y, Twist(30y–2y), and sDV01 IG/HY vs their budgets (dotted).")
         st.plotly_chart(exposures_vs_budgets(df, w, fb_over, f"{fund} – Factor Exposures vs Budgets"), use_container_width=True)
 
         # Scenario distribution
+        title_with_help(f"{fund} – Scenario P&L Distribution", "Monthly %P&L distribution from Monte Carlo. Vertical lines show VaR99 and CVaR99.")
         st.plotly_chart(scenario_histogram(port_pnl, f"{fund} – Scenario P&L Distribution"), use_container_width=True)
 
         # Contributions table
+        title_with_help("Segment contributions table", "Weights, expected return contribution (%), yield & roll‑down, and duration metrics per segment.")
         contr = contributions_table(df, w, mu)
         st.dataframe(contr, use_container_width=True, height=360)
 
