@@ -416,8 +416,8 @@ def solve_portfolio(df: pd.DataFrame,
         prev_w = np.zeros(n)
     max_turnover = params.get("max_turnover", TURNOVER_DEFAULTS["max_turnover"])
     if apply_turnover:
-    constraints += [cp.norm1(w - prev_w) <= max_turnover]
-    turnover_penalty = params.get("turnover_penalty", TURNOVER_DEFAULTS["penalty_bps_per_100"]) / 10000.0
+        constraints += [cp.norm1(w - prev_w) <= max_turnover]
+        turnover_penalty = params.get("turnover_penalty", TURNOVER_DEFAULTS["penalty_bps_per_100"]) / 10000.0
     else:
         turnover_penalty = 0.0
 
