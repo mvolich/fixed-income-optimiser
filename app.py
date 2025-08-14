@@ -461,7 +461,7 @@ def solve_portfolio(df: pd.DataFrame,
         try:
             prob.solve(solver=solver, **kwargs)
             break
-    except Exception as e:
+        except Exception as e:
             solve_errors.append(f"{getattr(solver, '__name__', str(solver))}: {e}")
             continue
 
