@@ -128,8 +128,8 @@ st.set_page_config(
 
 inject_brand_css()
 
-# Default file name if the user doesn't upload
-DEFAULT_INPUT_FILE = "Optimiser_Input_Final_v3.xlsx"
+# Default file name if the user doesn't upload (bundled sample)
+DEFAULT_INPUT_FILE = "sample_data/Optimiser_Input_Sample.xlsx"
 INPUT_SHEET = "Optimiser_Input"
 
 # Prospectus caps per fund (locked as provided)
@@ -544,7 +544,7 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
         "sDV01 HY": float(np.sum(oasd * weights * (~is_ig_mask))),
     }
     x = list(vals.keys()); y = list(vals.values())
-    fig = go.Figure(go.Bar(x=x, y=y))
+    fig = go.Figure(go.Bar(x=x, y=y, marker_color=RB_COLORS["blue"]))
     # Budget lines (only those that map)
     fig.add_hline(y=budgets.get("limit_krd10y", 0.75), line_dash="dot", annotation_text="KRD10y cap", annotation_position="top left")
     fig.add_hline(y=budgets.get("limit_sdv01_ig", 3.0), line_dash="dot", annotation_text="sDV01 IG cap", annotation_position="bottom left")
@@ -594,10 +594,16 @@ def heatmap_funds_losses(fund_results: dict):
     data = []
     for row in Z:
         data.append([np.percentile(row, p) for p in percs])
+    brand_scale = [
+        [0.0, BRAND["blue"]],
+        [0.5, BRAND["grey"]],
+        [1.0, BRAND["orange"]],
+    ]
     fig = go.Figure(data=go.Heatmap(
         z=data,
         x=[f"P{p}" for p in percs],
-        y=funds
+        y=funds,
+        colorscale=brand_scale
     ))
     fig.update_layout(title="Scenario Distribution by Fund (Portfolio P&L percentiles)", height=300, margin=dict(l=10,r=10,t=40,b=20))
     return apply_theme(fig)
@@ -628,7 +634,7 @@ Changing a slider updates the optimisation and the charts so you can see the imp
 
 # File input
 with st.expander("Data source (Excel) • required columns: Segment_ID, Name, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Credit_Quality, Instrument_Type, Include", expanded=False):
-    upload = st.file_uploader("Upload Optimiser_Input_Final_v3.xlsx (sheet Optimiser_Input)", type=["xlsx"], accept_multiple_files=False)
+    upload = st.file_uploader("Upload Optimiser_Input Excel (sheet Optimiser_Input)", type=["xlsx"], accept_multiple_files=False)
     st.write("If no file is uploaded, the app will try to read:", f"`{DEFAULT_INPUT_FILE}`")
 
 # Load data
@@ -799,7 +805,7 @@ with tab_overview:
     for col in alloc_df.columns:
         y = alloc_df[col].values
         y = np.where(np.abs(y) < min_weight_display, 0.0, y)
-        color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}.get(col, None)
+        color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}.get(col, RB_COLORS["blue"])
         fig_alloc.add_bar(name=col, x=alloc_df.index, y=y, marker_color=color)
     fig_alloc.update_layout(barmode="group", height=380, margin=dict(l=10,r=10,t=40,b=80), xaxis_title="Segment", yaxis_title="Weight")
     st.plotly_chart(fig_alloc, use_container_width=True)
@@ -817,9 +823,10 @@ with tab_overview:
                 "Twist(30-2)": float((df["KRD_30y"].values - df["KRD_2y"].values) @ w),
                 "sDV01": float(df["OASD_Years"].values @ w),
             }
-            fig_fb.add_bar(name=f" {f} KRD10y", x=["KRD10y"], y=[vals["KRD10y"]])
-            fig_fb.add_bar(name=f" {f} Twist", x=["Twist(30-2)"], y=[vals["Twist(30-2)"]])
-            fig_fb.add_bar(name=f" {f} sDV01", x=["sDV01"], y=[vals["sDV01"]])
+            fund_color = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"]}[f]
+            fig_fb.add_bar(name=f" {f} KRD10y", x=["KRD10y"], y=[vals["KRD10y"]], marker_color=fund_color)
+            fig_fb.add_bar(name=f" {f} Twist", x=["Twist(30-2)"], y=[vals["Twist(30-2)"]], marker_color=fund_color)
+            fig_fb.add_bar(name=f" {f} sDV01", x=["sDV01"], y=[vals["sDV01"]], marker_color=fund_color)
     fig_fb.update_layout(barmode="group", height=300, margin=dict(l=10,r=10,t=40,b=20))
     st.plotly_chart(fig_fb, use_container_width=True)
 
