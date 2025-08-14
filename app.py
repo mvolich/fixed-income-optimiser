@@ -426,13 +426,13 @@ def solve_portfolio(df: pd.DataFrame,
     # Compute metrics
     port_pnl = pnl_matrix @ w_opt
     var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
-    # mu is in decimals; convert to pp for display
+    # mu is in decimals; convert to percent for display
     er_dec = float(mu @ w_opt)
-    er_pp  = er_dec * 100.0
+    er_pct = er_dec * 100.0
     yld = float(df["Yield_Hedged_Pct"].values @ w_opt)
     oad = float(df["OAD_Years"].values @ w_opt)
 
-    metrics = {"status": "OPTIMAL", "obj": prob.value, "ExpRet_pct": er_pp, "Yield_pct": yld, "OAD_years": oad,
+    metrics = {"status": "OPTIMAL", "obj": prob.value, "ExpRet_pct": er_pct, "Yield_pct": yld, "OAD_years": oad,
                "VaR99_1M": var99, "CVaR99_1M": cvar99, "weights": w_opt}
     return w_opt, metrics
 
@@ -444,7 +444,7 @@ def fmt_pct(x, digits=2):
     return f"{x*100:.{digits}f}%"
 
 def fmt_pp(x, digits=2):
-    return f"{x:.{digits}f}pp"
+    return f"{x:.{digits}f}%"
 
 def style_dataframe_percent(df, pct_cols, digits=2):
     df = df.copy()
@@ -459,9 +459,9 @@ def fmt_weight(series, digits=2):
     return (np.asarray(series) * 100).round(digits)
 
 def kpi_number(value: float, kind: str = "pct"):
-    # kind: "pct" (value is decimal), "pp" (value is already percentage points)
+    # kind: "pct" (value is decimal), "pp" (value is already percent value)
     val = value * 100 if kind == "pct" else value
-    suffix = "%" if kind == "pct" else "pp"
+    suffix = "%"
     fig = go.Figure(go.Indicator(mode="number", value=val, number={"suffix": suffix, "valueformat": ".2f"}))
     fig.update_layout(template="rubrics", margin=dict(l=5, r=5, t=6, b=6), height=110, showlegend=False, title={"text": ""})
     return fig
@@ -501,7 +501,7 @@ def contributions_table(df, weights, mu):
     contr = pd.DataFrame({
         "Segment": df["Name"],
         "Weight": weights,
-        # mu is decimal; show pp in the contributions view
+        # mu is decimal; show percent contribution in the table
         "ER_Contribution_pct": weights * (mu * 100.0),
         "Yield_pct": df["Yield_Hedged_Pct"].values,
         "RollDown_pct": df["Roll_Down_bps_1Y"].values/100.0,
@@ -534,7 +534,7 @@ with st.expander("❓ How this optimiser works & what the controls do", expanded
     st.markdown(
         """
 - **Objective**: chooses the optimisation target (e.g., *Max Return*, *Max Sharpe*).
-- **Expected return (pp)**: carry + 1‑year roll‑down. “pp” = percentage points.
+- **Expected return (%)**: carry + 1‑year roll‑down.
 - **VaR/CVaR (monthly, 99%)**: simulated 1‑month loss tail using rate/spread shocks.
 - **Factor budgets**:
   - **KRD** (Key Rate Duration): rate sensitivity at selected maturities.
@@ -639,9 +639,9 @@ with st.sidebar:
 # Prepare scenarios
 mc = simulate_mc_draws(int(n_draws), int(seed), dict(RATES_BP99), dict(SPREAD_BP99))
 pnl_matrix_assets = build_asset_pnl_matrix(df, tags, mc)  # S x N
-# Expected return vector: keep pp for display, convert to decimals for optimisation
-mu_pp = df["ExpRet_pct"].values.astype(float)
-mu = mu_pp / 100.0
+# Expected return vector: convert percent to decimals for optimisation, keep percent for display
+mu_percent = df["ExpRet_pct"].values.astype(float)
+mu = mu_percent / 100.0
 
 # Helper: run optimisation for a single fund
 def run_fund(fund: str, objective: str, var_cap_override: float | None = None, prev_w=None):
@@ -674,7 +674,7 @@ with tab_overview:
         st.markdown(
             """
 **Objective** – chooses the optimiser’s target.  
-**Expected Return** – annualised carry + 1y roll‑down (pp).  
+**Expected Return** – annualised carry + 1y roll‑down (%).  
 **VaR/CVaR (1M)** – 99% tail metrics from monthly Monte Carlo scenarios.  
 **Factor budgets** – caps on interest‑rate key‑rate exposures and spread duration (years).  
 **Prospectus caps** – hard limits specific to each fund (Non‑IG, EM, AT1, Hybrid, Cash).  
@@ -719,15 +719,15 @@ with tab_overview:
         if agg_mode == "Equal-weight":
             agg_weights = Ws.mean(axis=0)
         else:
-            ers = np.array([fund_outputs[f][0]["ExpRet_pct"] for f in fund_outputs])  # pp
+            ers = np.array([fund_outputs[f][0]["ExpRet_pct"] for f in fund_outputs])  # percent values
             w_funds = ers / ers.sum() if ers.sum() != 0 else np.ones_like(ers) / len(ers)
             agg_weights = (w_funds.reshape(-1,1) * Ws).sum(axis=0)
         port_pnl_agg = pnl_matrix_assets @ agg_weights
         var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
-        er_agg_pp = float(mu @ agg_weights) * 100.0
+        er_agg_pct = float(mu @ agg_weights) * 100.0
         with cols[3]:
             st.markdown("**Aggregate – Expected Return**")
-            st.plotly_chart(kpi_number(er_agg_pp, kind="pp"), use_container_width=True, config=plotly_default_config, key="kpi_agg_er")
+            st.plotly_chart(kpi_number(er_agg_pct, kind="pp"), use_container_width=True, config=plotly_default_config, key="kpi_agg_er")
 
             st.markdown("**Aggregate – VaR99 1M**")
             st.plotly_chart(kpi_number(var99_agg, kind="pct"), use_container_width=True, config=plotly_default_config, key="kpi_agg_var")
