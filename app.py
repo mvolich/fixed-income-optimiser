@@ -757,10 +757,10 @@ with tab_overview:
             m,_ = fund_outputs[f]
             with cols[idx]:
                 st.markdown(f"**{f} – Expected Return**")
-                st.plotly_chart(kpi_number(m["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config)
+                st.plotly_chart(kpi_number(m["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_er")
 
                 st.markdown(f"**{f} – VaR99 1M**")
-                st.plotly_chart(kpi_number(m["VaR99_1M"], kind="pct"), use_container_width=True, config=plotly_default_config)
+                st.plotly_chart(kpi_number(m["VaR99_1M"], kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_var")
 
                 cap = VAR99_CAP[f]
                 status = "✅ within cap" if m["VaR99_1M"] <= cap else "❌ over cap"
@@ -775,10 +775,10 @@ with tab_overview:
         er_agg_pp = float(mu @ agg_weights) * 100.0
         with cols[3]:
             st.markdown("**Aggregate – Expected Return**")
-            st.plotly_chart(kpi_number(er_agg_pp, kind="pp"), use_container_width=True, config=plotly_default_config)
+            st.plotly_chart(kpi_number(er_agg_pp, kind="pp"), use_container_width=True, config=plotly_default_config, key="kpi_agg_er")
 
             st.markdown("**Aggregate – VaR99 1M**")
-            st.plotly_chart(kpi_number(var99_agg, kind="pct"), use_container_width=True, config=plotly_default_config)
+            st.plotly_chart(kpi_number(var99_agg, kind="pct"), use_container_width=True, config=plotly_default_config, key="kpi_agg_var")
 
     spacer(1)
     # Allocation by segment (stacked bars)
@@ -889,16 +889,16 @@ with tab_fund:
         cols = st.columns(4)
         with cols[0]:
             st.markdown("**Expected Return (ann.)**")
-            st.plotly_chart(kpi_number(metrics["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config)
+            st.plotly_chart(kpi_number(metrics["ExpRet_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_er")
         with cols[1]:
             st.markdown("**VaR99 1M**")
-            st.plotly_chart(kpi_number(var99, kind="pct"), use_container_width=True, config=plotly_default_config)
+            st.plotly_chart(kpi_number(var99, kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_var")
         with cols[2]:
             st.markdown("**CVaR99 1M**")
-            st.plotly_chart(kpi_number(cvar99, kind="pct"), use_container_width=True, config=plotly_default_config)
+            st.plotly_chart(kpi_number(cvar99, kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_cvar")
         with cols[3]:
             st.markdown("**Portfolio Yield**")
-            st.plotly_chart(kpi_number(metrics["Yield_pct"], kind="pp"), use_container_width=True, config=plotly_default_config)
+            st.plotly_chart(kpi_number(metrics["Yield_pct"], kind="pp"), use_container_width=True, config=plotly_default_config, key=f"kpi_{fund}_detail_yield")
 
         cap = var_cap
         status = "✅ within cap" if var99 <= cap else "❌ over cap"
