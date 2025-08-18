@@ -100,7 +100,10 @@ inject_brand_css()
 # Default file name if the user doesn't upload
 DEFAULT_INPUT_FILE = "Optimiser_Input_Final_v3.xlsx"
 SAMPLE_INPUT_FILE = "sample_data/Optimiser_Input_Sample.xlsx"
+
+# Sheets
 INPUT_SHEET = "Optimiser_Input"
+METADATA_SHEET = "MetaData"
 
 # Prospectus caps per fund (locked as provided)
 FUND_CONSTRAINTS = {
@@ -136,25 +139,37 @@ def spacer(h=1):
 # Column normalization & validation
 # -----------------------------
 
-# Required columns that the optimiser logic depends on
+# Required columns in the *combined* table (after joining meta)
 REQUIRED_COLS = [
-    "Segment_ID","Name","Instrument_Type","Credit_Quality","Include",
-    "Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years",
-    "KRD_2y","KRD_5y","KRD_10y","KRD_30y",
+    "Bloomberg_Ticker",    # <- join key
+    "Name",
+    "Instrument_Type",     # from MetaData (can also be in Optimiser_Input)
+    "Credit_Quality",      # from MetaData
+    "Include",
+    "Yield_Hedged_Pct", "Roll_Down_bps_1Y",
+    "OAD_Years", "OASD_Years",
+    "KRD_2y", "KRD_5y", "KRD_10y", "KRD_30y",
 ]
 
-# Common aliases (all compared in lowercase) that will be renamed to the required names
+# Tolerant column synonyms (lowercased)
 COLUMN_SYNONYMS = {
-    "oasd_years": ["asd_years"],
-    "krd_2y": ["krd_2","krd2y"],
-    "krd_5y": ["krd_5","krd5y"],
-    "krd_10y": ["krd_10","krd10y"],
-    "krd_30y": ["krd_30","krd30y"],
+    "bloomberg_ticker": ["ticker","bbg_ticker","bb_ticker","bbg","bloombergid","bloomberg_id"],
+    "instrument_type":  ["type","sleeve","sleeve_type"],
+    "credit_quality":   ["rating","quality","credit_rating","cq"],
+    "oasd_years":       ["asd_years"],
+    "krd_2y":           ["krd_2","krd2y"],
+    "krd_5y":           ["krd_5","krd5y"],
+    "krd_10y":          ["krd_10","krd10y"],
+    "krd_30y":          ["krd_30","krd30y"],
     "yield_hedged_pct": ["yield_hedged","yield_hedged_%","yield_hedged_percent"],
     "roll_down_bps_1y": ["roll_down_bps","rolldown_bps_1y"],
-    "instrument_type": ["type"],
-    "credit_quality": ["rating","quality"],
 }
+
+def _to_bool(s):
+    """Coerce typical TRUE/FALSE/Yes/No/1/0 strings to bool; leave NaN -> False."""
+    return pd.Series(s).astype(str).str.strip().str.lower().map(
+        {"true": True, "t": True, "1": True, "yes": True, "y": True, "false": False, "f": False, "0": False, "no": False, "n": False}
+    ).fillna(False).astype(bool)
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     # Map lower-case names to actual case from the file
@@ -187,54 +202,123 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPUT_FILE) -> pd.DataFrame:
+    # Read the workbook
     if uploaded_file_bytes is not None:
         bio = io.BytesIO(uploaded_file_bytes)
-        df = pd.read_excel(bio, sheet_name=INPUT_SHEET, engine="openpyxl")
+        wb = pd.read_excel(bio, sheet_name=None, engine="openpyxl")
     else:
-        df = pd.read_excel(path, sheet_name=INPUT_SHEET, engine="openpyxl")
-    # Normalize columns and validate required fields
-    df = _normalize_columns(df)
+        wb = pd.read_excel(path, sheet_name=None, engine="openpyxl")
+
+    # Pull sheets if present
+    df_in  = wb.get(INPUT_SHEET)
+    df_md  = wb.get(METADATA_SHEET)
+
+    if df_in is None:
+        raise ValueError(f"Sheet '{INPUT_SHEET}' not found.")
+
+    # Normalise input sheet columns
+    df_in = _normalize_columns(df_in)
+
+    # If MetaData exists, normalise its columns and join on Bloomberg_Ticker
+    if df_md is not None:
+        # tolerant normalisation for meta
+        lower_to_actual = {c.lower().strip(): c for c in df_md.columns}
+        def _meta_col(name, *alts):
+            for k in (name.lower(), *[a.lower() for a in alts]):
+                if k in lower_to_actual:
+                    return lower_to_actual[k]
+            return None
+
+        # Standardise join key in both frames
+        bb_in  = _meta_col("Bloomberg_Ticker") or "Bloomberg_Ticker"
+        if "Bloomberg_Ticker" not in df_in.columns and bb_in in df_in.columns:
+            df_in = df_in.rename(columns={bb_in: "Bloomberg_Ticker"})
+        elif "Bloomberg_Ticker" not in df_in.columns:
+            raise ValueError("Bloomberg_Ticker missing from Optimiser_Input.")
+
+        bb_md = _meta_col("Bloomberg_Ticker","ticker","bbg","bbg_ticker")
+        if bb_md is None:
+            raise ValueError("Bloomberg_Ticker missing from MetaData.")
+
+        # Pick meta fields we care about
+        cq   = _meta_col("Credit_Quality","rating","credit_rating")
+        it   = _meta_col("Instrument_Type","type","sleeve","sleeve_type")
+        f_at1 = _meta_col("Is_AT1");   f_em = _meta_col("Is_EM"); 
+        f_nig = _meta_col("Is_Non_IG"); f_hyb = _meta_col("Is_Hybrid"); f_tb = _meta_col("Is_TBill")
+
+        keep = [bb_md] + [c for c in [cq,it,f_at1,f_em,f_nig,f_hyb,f_tb] if c is not None]
+        meta = df_md[keep].rename(columns={bb_md: "Bloomberg_Ticker",
+                                           cq:"Credit_Quality", it:"Instrument_Type",
+                                           f_at1:"Is_AT1", f_em:"Is_EM", f_nig:"Is_Non_IG",
+                                           f_hyb:"Is_Hybrid", f_tb:"Is_TBill"})
+
+        # Coerce booleans if present
+        for c in ["Is_AT1","Is_EM","Is_Non_IG","Is_Hybrid","Is_TBill"]:
+            if c in meta.columns:
+                meta[c] = _to_bool(meta[c])
+
+        # Left join meta onto input
+        df = df_in.merge(meta, on="Bloomberg_Ticker", how="left", suffixes=("", "_meta"))
+        # If Credit_Quality / Instrument_Type exist in both, prefer MetaData
+        for c in ["Credit_Quality","Instrument_Type"]:
+            if f"{c}_meta" in df.columns:
+                df[c] = df[f"{c}_meta"].fillna(df[c])
+                df = df.drop(columns=[f"{c}_meta"])
+    else:
+        # No meta sheet – keep input as-is
+        df = df_in
+
     # Coerce numerics
     num_cols = ["Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years","Convexity","KRD_2y","KRD_5y","KRD_10y","KRD_30y"]
     for c in num_cols:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-    # Expected return
+
+    # Compute expected return (pp)
     df["ExpRet_pct"] = df.get("Yield_Hedged_Pct", 0.0) + df.get("Roll_Down_bps_1Y", 0.0) / 100.0
-    # Ensure Include
+
+    # Filter Include = TRUE if provided
     if "Include" in df.columns:
         df = df[df["Include"] == True].copy()
+
     df.reset_index(drop=True, inplace=True)
+
+    # Validate that the combined table has what the app needs
+    missing = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns after join: {', '.join(missing)}")
+
     return df
 
 def tag_segments(df: pd.DataFrame) -> dict:
-    seg = df["Segment_ID"].fillna("").astype(str).str.upper()
-    name = df["Name"].fillna("").astype(str).str.upper()
-    typ  = df["Instrument_Type"].fillna("").astype(str).str.upper()
-    qual = df["Credit_Quality"].fillna("").astype(str).str.upper()
+    # Prefer explicit MetaData flags when present
+    def has(col): return (col in df.columns)
+    # Booleans from MetaData (if present)
+    is_tbill  = df["Is_TBill"].astype(bool)   if has("Is_TBill")   else df["Name"].fillna("").str.upper().str.contains("TBILL", na=False)
+    is_at1    = df["Is_AT1"].astype(bool)     if has("Is_AT1")     else df["Name"].fillna("").str.upper().str.contains("AT1",   na=False)
+    is_hybrid = df["Is_Hybrid"].astype(bool)  if has("Is_Hybrid")  else df["Name"].fillna("").str.upper().str.contains("GLOBAL HYBRID|HYBRID", na=False)
+    is_em     = df["Is_EM"].astype(bool)      if has("Is_EM")      else (df.get("Instrument_Type","").astype(str).str.upper() == "EM")
+    is_non_ig = df["Is_Non_IG"].astype(bool)  if has("Is_Non_IG")  else False
 
-    is_tbill  = seg.str.contains("TBILL")
-    is_at1    = seg.str.contains("AT1")
-    is_t2     = seg.str.contains("T2")
-    is_hybrid = seg.str.contains("GLOBAL_HYBRID")  # Hybrid = Global Hybrid only
-    is_em     = (typ == "EM")                      # EM = EM hard-currency sleeve only
-    is_hy_rt  = qual.isin(["BB","B","CCC","HY"])
+    # Credit quality from MetaData (or input), used to infer IG/HY when flags not given
+    qual = df.get("Credit_Quality", pd.Series([""]*len(df))).astype(str).str.upper()
+    is_hy_rating = qual.isin(["BB","B","CCC","HY"])
 
-    # Non-IG = HY ratings OR BankCapital (AT1/T2) OR EM HC
-    is_non_ig = is_hy_rt | is_at1 | is_t2 | is_em
+    # If Is_Non_IG wasn't supplied, infer it as HY ratings OR EM OR AT1/Hybrid
+    if not has("Is_Non_IG"):
+        is_non_ig = (is_hy_rating | is_em | is_at1 | is_hybrid)
 
-    # IG used for IG sDV01 budget: treat Gov as IG too
-    is_ig = qual.isin(["IG","GOV","AA","A","BBB","AAA","AA+","AA-","A+","A-","BBB+","BBB","BBB-"])
+    # IG mask for sDV01 IG budget (treat Gov/AAA..BBB as IG)
+    is_ig = qual.isin(["IG","GOV","AAA","AA+","AA","AA-","A+","A","A-","BBB+","BBB","BBB-"])
 
     return {
-        "is_tbill": is_tbill.values.astype(bool),
-        "is_at1":   is_at1.values.astype(bool),
-        "is_t2":    is_t2.values.astype(bool),
-        "is_hybrid":is_hybrid.values.astype(bool),
-        "is_em":    is_em.values.astype(bool),
-        "is_non_ig":is_non_ig.values.astype(bool),
-        "is_ig":    is_ig.values.astype(bool),
-        "is_hy_rating": is_hy_rt.values.astype(bool),
+        "is_tbill":   np.asarray(is_tbill,   dtype=bool),
+        "is_at1":     np.asarray(is_at1,     dtype=bool),
+        "is_hybrid":  np.asarray(is_hybrid,  dtype=bool),
+        "is_em":      np.asarray(is_em,      dtype=bool),
+        "is_non_ig":  np.asarray(is_non_ig,  dtype=bool),
+        "is_ig":      np.asarray(is_ig,      dtype=bool),
+        "is_hy_rating": np.asarray(is_hy_rating, dtype=bool),
     }
 
 # -----------------------------
@@ -740,7 +824,7 @@ Changing a slider updates the optimisation and the charts so you can see the imp
     )
 
 # File input
-with st.expander("Data source (Excel) • required columns: Segment_ID, Name, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Credit_Quality, Instrument_Type, Include", expanded=False):
+with st.expander("Data source (Excel) • sheets: \"Optimiser_Input\" and \"MetaData\". Join key: Bloomberg_Ticker. Required fields (after join): Bloomberg_Ticker, Name, Instrument_Type, Credit_Quality, Include, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y.", expanded=False):
     upload = st.file_uploader("Upload Optimiser_Input_Final_v3.xlsx (sheet Optimiser_Input)", type=["xlsx"], accept_multiple_files=False)
     st.write("If no file is uploaded, the app will try to read:", f"`{DEFAULT_INPUT_FILE}`")
 
