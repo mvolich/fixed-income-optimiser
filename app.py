@@ -151,6 +151,9 @@ REQUIRED_COLS = [
     "KRD_2y", "KRD_5y", "KRD_10y", "KRD_30y",
 ]
 
+# IG ratings set for sDV01 IG/HY classification
+IG_RATINGS = {'AAA','AA+','AA','AA-','A+','A','A-','BBB+','BBB','BBB-','GOV','SOV','TREASURY'}
+
 # Tolerant column synonyms (lowercased)
 COLUMN_SYNONYMS = {
     "bloomberg_ticker": ["ticker","bbg_ticker","bb_ticker","bbg","bloombergid","bloomberg_id"],
@@ -170,6 +173,90 @@ def _to_bool(s):
     return pd.Series(s).astype(str).str.strip().str.lower().map(
         {"true": True, "t": True, "1": True, "yes": True, "y": True, "false": False, "f": False, "0": False, "no": False, "n": False}
     ).fillna(False).astype(bool)
+
+def attach_metadata(df: pd.DataFrame, meta: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+    """
+    Attach metadata to the input dataframe using Bloomberg_Ticker or Name as join key.
+    
+    Args:
+        df: Input dataframe
+        meta: Metadata dataframe
+        
+    Returns:
+        tuple: (merged_dataframe, list_of_tickers_without_metadata)
+    """
+    # Normalise Bloomberg_Ticker and Name in both frames
+    df_norm = df.copy()
+    meta_norm = meta.copy()
+    
+    # Normalise Bloomberg_Ticker
+    if 'Bloomberg_Ticker' in df_norm.columns:
+        df_norm['Bloomberg_Ticker_norm'] = df_norm['Bloomberg_Ticker'].astype(str).str.strip().str.upper()
+    if 'Bloomberg_Ticker' in meta_norm.columns:
+        meta_norm['Bloomberg_Ticker_norm'] = meta_norm['Bloomberg_Ticker'].astype(str).str.strip().str.upper()
+    
+    # Normalise Name
+    if 'Name' in df_norm.columns:
+        df_norm['Name_norm'] = df_norm['Name'].astype(str).str.strip().str.upper()
+    if 'Name' in meta_norm.columns:
+        meta_norm['Name_norm'] = meta_norm['Name'].astype(str).str.strip().str.upper()
+    
+    # Select join key: prefer Bloomberg_Ticker if present in both, else use Name
+    if ('Bloomberg_Ticker_norm' in df_norm.columns and 
+        'Bloomberg_Ticker_norm' in meta_norm.columns):
+        join_key = 'Bloomberg_Ticker_norm'
+        join_col = 'Bloomberg_Ticker'
+    elif ('Name_norm' in df_norm.columns and 
+          'Name_norm' in meta_norm.columns):
+        join_key = 'Name_norm'
+        join_col = 'Name'
+    else:
+        # No valid join key found
+        return df, list(df.index)
+    
+    # Select metadata columns to merge
+    meta_cols = ['Bloomberg_Ticker', 'Name', 'Credit_Quality', 'Is_AT1', 'Is_EM', 'Is_Non_IG', 'Is_Hybrid', 'Is_TBill']
+    available_meta_cols = [col for col in meta_cols if col in meta_norm.columns]
+    
+    if not available_meta_cols:
+        return df, list(df.index)
+    
+    # Merge metadata
+    merged = df_norm.merge(
+        meta_norm[available_meta_cols + [join_key]], 
+        on=join_key, 
+        how='left', 
+        suffixes=('', '_meta')
+    )
+    
+    # Overwrite existing columns with metadata versions
+    take = ['Credit_Quality', 'Is_AT1', 'Is_EM', 'Is_Non_IG', 'Is_Hybrid', 'Is_TBill']
+    for col in take:
+        if col in merged.columns and f'{col}_meta' in merged.columns:
+            merged[col] = merged[f'{col}_meta'].combine_first(merged[col])
+            merged = merged.drop(columns=[f'{col}_meta'])
+    
+    # Coerce boolean columns
+    for col in ['Is_AT1', 'Is_EM', 'Is_Non_IG', 'Is_Hybrid', 'Is_TBill']:
+        if col in merged.columns:
+            merged[col] = _to_bool(merged[col])
+    
+    # Clean up temporary columns
+    merged = merged.drop(columns=[col for col in merged.columns if col.endswith('_norm')])
+    
+    # Identify records without metadata
+    missing_meta = merged[merged[available_meta_cols].isna().all(axis=1)]
+    missing_tickers = []
+    
+    if 'Bloomberg_Ticker' in merged.columns:
+        missing_tickers = missing_meta['Bloomberg_Ticker'].dropna().tolist()
+    elif 'Name' in merged.columns:
+        missing_tickers = missing_meta['Name'].dropna().tolist()
+    
+    # Add metadata missing flag
+    merged['_meta_missing'] = merged[available_meta_cols].isna().all(axis=1)
+    
+    return merged, missing_tickers
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     # Map lower-case names to actual case from the file
@@ -201,7 +288,7 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------------
 
 @st.cache_data(show_spinner=False)
-def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPUT_FILE) -> pd.DataFrame:
+def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPUT_FILE) -> tuple[pd.DataFrame, list]:
     # Read the workbook
     if uploaded_file_bytes is not None:
         bio = io.BytesIO(uploaded_file_bytes)
@@ -210,8 +297,8 @@ def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPU
         wb = pd.read_excel(path, sheet_name=None, engine="openpyxl")
 
     # Pull sheets if present
-    df_in  = wb.get(INPUT_SHEET)
-    df_md  = wb.get(METADATA_SHEET)
+    df_in = wb.get(INPUT_SHEET)
+    df_md = wb.get(METADATA_SHEET)
 
     if df_in is None:
         raise ValueError(f"Sheet '{INPUT_SHEET}' not found.")
@@ -219,98 +306,62 @@ def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPU
     # Normalise input sheet columns
     df_in = _normalize_columns(df_in)
 
-    # If MetaData exists, normalise its columns and join on Bloomberg_Ticker
+    # If MetaData exists, attach it using the helper
+    missing_tickers = []
     if df_md is not None:
-        # tolerant normalisation for meta
-        lower_to_actual = {c.lower().strip(): c for c in df_md.columns}
-        def _meta_col(name, *alts):
-            for k in (name.lower(), *[a.lower() for a in alts]):
-                if k in lower_to_actual:
-                    return lower_to_actual[k]
-            return None
-
-        # Standardise join key in both frames
-        bb_in  = _meta_col("Bloomberg_Ticker") or "Bloomberg_Ticker"
-        if "Bloomberg_Ticker" not in df_in.columns and bb_in in df_in.columns:
-            df_in = df_in.rename(columns={bb_in: "Bloomberg_Ticker"})
-        elif "Bloomberg_Ticker" not in df_in.columns:
-            raise ValueError("Bloomberg_Ticker missing from Optimiser_Input.")
-
-        bb_md = _meta_col("Bloomberg_Ticker","ticker","bbg","bbg_ticker")
-        if bb_md is None:
-            raise ValueError("Bloomberg_Ticker missing from MetaData.")
-
-        # Pick meta fields we care about
-        cq   = _meta_col("Credit_Quality","rating","credit_rating")
-        it   = _meta_col("Instrument_Type","type","sleeve","sleeve_type")
-        f_at1 = _meta_col("Is_AT1");   f_em = _meta_col("Is_EM"); 
-        f_nig = _meta_col("Is_Non_IG"); f_hyb = _meta_col("Is_Hybrid"); f_tb = _meta_col("Is_TBill")
-
-        keep = [bb_md] + [c for c in [cq,it,f_at1,f_em,f_nig,f_hyb,f_tb] if c is not None]
-        meta = df_md[keep].rename(columns={bb_md: "Bloomberg_Ticker",
-                                           cq:"Credit_Quality", it:"Instrument_Type",
-                                           f_at1:"Is_AT1", f_em:"Is_EM", f_nig:"Is_Non_IG",
-                                           f_hyb:"Is_Hybrid", f_tb:"Is_TBill"})
-
-        # Coerce booleans if present
-        for c in ["Is_AT1","Is_EM","Is_Non_IG","Is_Hybrid","Is_TBill"]:
-            if c in meta.columns:
-                meta[c] = _to_bool(meta[c])
-
-        # Left join meta onto input
-        df = df_in.merge(meta, on="Bloomberg_Ticker", how="left", suffixes=("", "_meta"))
-        # If Credit_Quality / Instrument_Type exist in both, prefer MetaData
-        for c in ["Credit_Quality","Instrument_Type"]:
-            if f"{c}_meta" in df.columns:
-                df[c] = df[f"{c}_meta"].fillna(df[c])
-                df = df.drop(columns=[f"{c}_meta"])
-    else:
-        # No meta sheet – keep input as-is
-        df = df_in
-
+        df_in, missing_tickers = attach_metadata(df_in, df_md)
+    
     # Coerce numerics
     num_cols = ["Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years","Convexity","KRD_2y","KRD_5y","KRD_10y","KRD_30y"]
     for c in num_cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+        if c in df_in.columns:
+            df_in[c] = pd.to_numeric(df_in[c], errors="coerce").fillna(0.0)
 
     # Compute expected return (pp)
-    df["ExpRet_pct"] = df.get("Yield_Hedged_Pct", 0.0) + df.get("Roll_Down_bps_1Y", 0.0) / 100.0
+    df_in["ExpRet_pct"] = df_in.get("Yield_Hedged_Pct", 0.0) + df_in.get("Roll_Down_bps_1Y", 0.0) / 100.0
 
     # Filter Include = TRUE if provided
-    if "Include" in df.columns:
-        df = df[df["Include"] == True].copy()
+    if "Include" in df_in.columns:
+        df_in = df_in[df_in["Include"] == True].copy()
 
-    df.reset_index(drop=True, inplace=True)
+    df_in.reset_index(drop=True, inplace=True)
 
     # Validate that the combined table has what the app needs
-    missing = [c for c in REQUIRED_COLS if c not in df.columns]
+    missing = [c for c in REQUIRED_COLS if c not in df_in.columns]
     if missing:
         raise ValueError(f"Missing required columns after join: {', '.join(missing)}")
 
-    return df
+    return df_in, missing_tickers
 
 def tag_segments(df: pd.DataFrame) -> dict:
+    """
+    Tag segments using MetaData flags when available, falling back to heuristics.
+    Uses MetaData's Is_Non_IG for prospectus caps, and IG_RATINGS for sDV01 classification.
+    """
     # Prefer explicit MetaData flags when present
     def has(col): return (col in df.columns)
+    
     # Booleans from MetaData (if present)
     is_tbill  = df["Is_TBill"].astype(bool)   if has("Is_TBill")   else df["Name"].fillna("").str.upper().str.contains("TBILL", na=False)
     is_at1    = df["Is_AT1"].astype(bool)     if has("Is_AT1")     else df["Name"].fillna("").str.upper().str.contains("AT1",   na=False)
     is_hybrid = df["Is_Hybrid"].astype(bool)  if has("Is_Hybrid")  else df["Name"].fillna("").str.upper().str.contains("GLOBAL HYBRID|HYBRID", na=False)
     is_em     = df["Is_EM"].astype(bool)      if has("Is_EM")      else (df.get("Instrument_Type","").astype(str).str.upper() == "EM")
-    is_non_ig = df["Is_Non_IG"].astype(bool)  if has("Is_Non_IG")  else False
-
-    # Credit quality from MetaData (or input), used to infer IG/HY when flags not given
+    
+    # Use MetaData's Is_Non_IG directly for prospectus caps
+    is_non_ig = df["Is_Non_IG"].astype(bool) if has("Is_Non_IG") else False
+    
+    # Credit quality from MetaData (or input)
     qual = df.get("Credit_Quality", pd.Series([""]*len(df))).astype(str).str.upper()
     is_hy_rating = qual.isin(["BB","B","CCC","HY"])
-
+    
     # If Is_Non_IG wasn't supplied, infer it as HY ratings OR EM OR AT1/Hybrid
     if not has("Is_Non_IG"):
         is_non_ig = (is_hy_rating | is_em | is_at1 | is_hybrid)
-
-    # IG mask for sDV01 IG budget (treat Gov/AAA..BBB as IG)
-    is_ig = qual.isin(["IG","GOV","AAA","AA+","AA","AA-","A+","A","A-","BBB+","BBB","BBB-"])
-
+    
+    # IG classification for sDV01 charts (use rating-based approach)
+    df['Is_IG_by_rating'] = df['Credit_Quality'].str.upper().isin(IG_RATINGS)
+    is_ig = df['Is_IG_by_rating'].values
+    
     return {
         "is_tbill":   np.asarray(is_tbill,   dtype=bool),
         "is_at1":     np.asarray(is_at1,     dtype=bool),
@@ -830,7 +881,7 @@ with st.expander("Data source (Excel) • sheets: \"Optimiser_Input\" and \"Meta
 
 # Load data
 try:
-    df = load_input_table(upload.getvalue() if upload is not None else None, DEFAULT_INPUT_FILE)
+    df, missing_tickers = load_input_table(upload.getvalue() if upload is not None else None, DEFAULT_INPUT_FILE)
 except Exception as e:
     st.error(f"Failed to load input: {e}")
     st.stop()
@@ -838,6 +889,11 @@ except Exception as e:
 if len(df) == 0:
     st.error("No rows found after applying Include==True. Please check the input file.")
     st.stop()
+
+# Show info badge for tickers without metadata
+if missing_tickers and len(missing_tickers) > 0:
+    with st.expander(f"ℹ️ {len(missing_tickers)} tickers using heuristic classification", expanded=False):
+        st.info(f"The following tickers fell back to heuristic classification (no MetaData found): {', '.join(missing_tickers[:10])}{'...' if len(missing_tickers) > 10 else ''}")
 
 tags = tag_segments(df)
 
