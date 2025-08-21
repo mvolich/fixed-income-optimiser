@@ -769,50 +769,69 @@ def render_cap_usage(df, tags, weights, fund):
     st.markdown("**Prospectus cap usage (weights)**")
     st.dataframe(tbl.style.format({"Used_pct":"{:.2f}%","Cap_pct":"{:.2f}%","Headroom_pct":"{:.2f}%"}), use_container_width=True, height=180)
 
-    # Create a more intuitive horizontal bar chart
+    # Create a more intuitive horizontal bar chart with color gradient
     fig = go.Figure()
+    
+    # Function to get color based on usage percentage
+    def get_usage_color(used_pct, cap_pct):
+        if cap_pct == 0:
+            return "red"  # No cap allowed
+        usage_ratio = used_pct / cap_pct if cap_pct > 0 else 0
+        # Green (low usage) to Red (high usage)
+        if usage_ratio <= 0.5:
+            # Green to Yellow
+            red = int(255 * usage_ratio * 2)
+            green = 255
+        else:
+            # Yellow to Red
+            red = 255
+            green = int(255 * (2 - usage_ratio * 2))
+        return f"rgb({red},{green},0)"
     
     # Add bars for each category
     for _, r in tbl.iterrows():
-        # Used portion (dark blue)
+        usage_color = get_usage_color(r["Used_pct"], r["Cap_pct"])
+        
+        # Used portion with color gradient
         fig.add_bar(
             y=[r["Cap"]], 
             x=[r["Used_pct"]], 
             orientation="h",
             name="Used", 
-            marker_color=RB_COLORS["medblue"],
-            hovertemplate="<b>%{y}</b><br>Used: %{x:.1f}%<extra></extra>"
+            marker_color=usage_color,
+            hovertemplate="<b>%{y}</b><br>Used: %{x:.1f}%<extra></extra>",
+            showlegend=False
         )
         
-        # Headroom portion (light blue)
+        # Available portion (transparent/no fill)
         if r["Headroom_pct"] > 0:
             fig.add_bar(
                 y=[r["Cap"]], 
                 x=[r["Headroom_pct"]], 
                 orientation="h",
                 name="Available", 
-                marker_color=RB_COLORS["ltblue"],
-                hovertemplate="<b>%{y}</b><br>Available: %{x:.1f}%<extra></extra>"
+                marker=dict(
+                    color="rgba(0,0,0,0)",  # Transparent fill
+                    line=dict(color="lightgray", width=1)  # Light gray border
+                ),
+                hovertemplate="<b>%{y}</b><br>Available: %{x:.1f}%<extra></extra>",
+                showlegend=False
             )
     
-    # Update layout with better spacing and legend positioning
+    # Update layout with title and no legend
     fig.update_layout(
+        title=dict(
+            text="Prospectus Cap Usage",
+            x=0.5,  # Center the title
+            xanchor="center",
+            font=dict(size=16, color=RB_COLORS["blue"])
+        ),
         barmode="stack",
-        height=280,  # Increased height to accommodate legend
-        margin=dict(l=10, r=10, t=80, b=20),  # Increased top margin for legend
+        height=260,  # Reduced height since no legend
+        margin=dict(l=10, r=10, t=50, b=20),  # Reduced top margin
         xaxis_title="% of NAV",
         yaxis_title="",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,  # Position legend above chart
-            xanchor="right",
-            x=1.0,
-            bgcolor="rgba(255,255,255,0.8)",  # Semi-transparent background
-            bordercolor="rgba(0,0,0,0.1)",
-            borderwidth=1
-        ),
-        showlegend=True
+        showlegend=False  # Remove legend
     )
     
     # Add value annotations on the bars for better readability
