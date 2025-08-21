@@ -753,6 +753,7 @@ def render_cap_usage(df, tags, weights, fund):
         "AT1":    float(tags["is_at1"].astype(float)    @ weights),
         "Cash":   float(tags["is_tbill"].astype(float)  @ weights),
     }
+    
     # Build a small table and a horizontal bar viz (used vs cap)
     rows = []
     for k, u in used.items():
@@ -760,6 +761,7 @@ def render_cap_usage(df, tags, weights, fund):
         if cap is None: 
             continue
         rows.append({"Cap": k, "Used_pct": u*100, "Cap_pct": cap*100, "Headroom_pct": (cap-u)*100})
+    
     tbl = pd.DataFrame(rows)
     if len(tbl) == 0:
         return
@@ -767,17 +769,78 @@ def render_cap_usage(df, tags, weights, fund):
     st.markdown("**Prospectus cap usage (weights)**")
     st.dataframe(tbl.style.format({"Used_pct":"{:.2f}%","Cap_pct":"{:.2f}%","Headroom_pct":"{:.2f}%"}), use_container_width=True, height=180)
 
+    # Create a more intuitive horizontal bar chart
     fig = go.Figure()
+    
+    # Add bars for each category
     for _, r in tbl.iterrows():
+        # Used portion (dark blue)
         fig.add_bar(
-            y=[r["Cap"]], x=[max(r["Used_pct"],0)], orientation="h",
-            name="Used", marker_color=RB_COLORS["medblue"]
+            y=[r["Cap"]], 
+            x=[r["Used_pct"]], 
+            orientation="h",
+            name="Used", 
+            marker_color=RB_COLORS["medblue"],
+            hovertemplate="<b>%{y}</b><br>Used: %{x:.1f}%<extra></extra>"
         )
-        fig.add_bar(
-            y=[r["Cap"]], x=[max(r["Cap_pct"] - max(r["Used_pct"],0),0)], orientation="h",
-            name="Headroom", marker_color=RB_COLORS["ltblue"]
-        )
-    fig.update_layout(barmode="stack", height=220, margin=dict(l=10,r=10,t=30,b=10), xaxis_title="% of NAV", yaxis_title="")
+        
+        # Headroom portion (light blue)
+        if r["Headroom_pct"] > 0:
+            fig.add_bar(
+                y=[r["Cap"]], 
+                x=[r["Headroom_pct"]], 
+                orientation="h",
+                name="Available", 
+                marker_color=RB_COLORS["ltblue"],
+                hovertemplate="<b>%{y}</b><br>Available: %{x:.1f}%<extra></extra>"
+            )
+    
+    # Update layout with better spacing and legend positioning
+    fig.update_layout(
+        barmode="stack",
+        height=280,  # Increased height to accommodate legend
+        margin=dict(l=10, r=10, t=80, b=20),  # Increased top margin for legend
+        xaxis_title="% of NAV",
+        yaxis_title="",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,  # Position legend above chart
+            xanchor="right",
+            x=1.0,
+            bgcolor="rgba(255,255,255,0.8)",  # Semi-transparent background
+            bordercolor="rgba(0,0,0,0.1)",
+            borderwidth=1
+        ),
+        showlegend=True
+    )
+    
+    # Add value annotations on the bars for better readability
+    for _, r in tbl.iterrows():
+        # Annotate used value
+        if r["Used_pct"] > 0:
+            fig.add_annotation(
+                x=r["Used_pct"]/2,  # Center of used bar
+                y=r["Cap"],
+                text=f"{r['Used_pct']:.1f}%",
+                showarrow=False,
+                font=dict(color="white", size=10, family="Arial Black"),
+                xanchor="center",
+                yanchor="middle"
+            )
+        
+        # Annotate total cap value
+        if r["Cap_pct"] > 0:
+            fig.add_annotation(
+                x=r["Cap_pct"] + 1,  # Just beyond the bar
+                y=r["Cap"],
+                text=f"Cap: {r['Cap_pct']:.1f}%",
+                showarrow=False,
+                font=dict(color=RB_COLORS["blue"], size=9),
+                xanchor="left",
+                yanchor="middle"
+            )
+    
     st.plotly_chart(fig, use_container_width=True, config=plotly_default_config)
 
 def cap_usage_gauge(label: str, used_w: float, cap_w: float) -> go.Figure:
