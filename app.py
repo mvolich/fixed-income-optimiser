@@ -612,7 +612,7 @@ def bar_allocation(df, weights, title, min_weight_threshold=0.001):
     return apply_theme(fig)
 
 def exposures_vs_budgets(df, weights, budgets: dict, title: str):
-    """Overlay bars: grey = cap, blue = used (abs for KRD/Twist). Avoid hlines to make mapping clear."""
+    """Overlay bars: grey = cap, blue = used (abs for KRD/Twist). Clean style matching Prospectus Cap Usage."""
     is_ig_mask = build_tags_from_meta(df)["is_ig"]
     oasd = df["OASD_Years"].values
 
@@ -631,16 +631,50 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
     labels = ["KRD 10y", "Twist (30y–2y)", "sDV01 IG", "sDV01 HY"]
 
     fig = go.Figure()
-    fig.add_bar(name="Cap", x=labels, y=cap_vals, marker_color=RB_COLORS["grey"])
-    fig.add_bar(name="Used", x=labels, y=used_vals, marker_color=RB_COLORS["blue"])
-    fig.update_traces(opacity=0.35, selector=dict(name="Cap"))
-    fig.update_layout(barmode="overlay", height=300, margin=dict(l=10,r=10,t=40,b=20), yaxis_title="Years")
-
-    # Over-cap annotations per column
-    for x_lbl, u, c in zip(labels, used_vals, cap_vals):
-        if u > c:
-            fig.add_annotation(x=x_lbl, y=u, text=f"Over by {u-c:.2f}", showarrow=False,
-                               font=dict(color=RB_COLORS["orange"]))
+    
+    # Add background bars (caps) in grey - matching Prospectus Cap Usage style
+    fig.add_bar(
+        name="Cap", 
+        x=labels, 
+        y=cap_vals, 
+        marker_color=RB_COLORS["grey"],
+        showlegend=False,
+        opacity=0.7
+    )
+    
+    # Add foreground bars (used) in dark blue - matching Prospectus Cap Usage style
+    fig.add_bar(
+        name="Used", 
+        x=labels, 
+        y=used_vals, 
+        marker_color=RB_COLORS["medblue"],
+        showlegend=False
+    )
+    
+    # Update layout to match Prospectus Cap Usage style
+    fig.update_layout(
+        title=dict(
+            text=title,
+            x=0.0,  # Left justify the title
+            xanchor="left"
+        ),
+        barmode="overlay", 
+        height=280,  # Match Prospectus Cap Usage height
+        margin=dict(l=10, r=10, t=50, b=40),  # Match Prospectus Cap Usage margins
+        yaxis_title="Years",
+        showlegend=False,
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(128,128,128,0.2)",
+            zeroline=True,
+            zerolinecolor="rgba(128,128,128,0.4)"
+        )
+    )
+    
     return fig
 
 def scenario_histogram(port_pnl, title="Scenario P&L (1M)"):
