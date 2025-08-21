@@ -1380,12 +1380,12 @@ with tab_fund:
         status = "within cap" if var99 <= cap else "over cap"
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
 
-        # Prospectus cap usage panel
-        render_cap_usage(df, tags, w, fund)
-
         # Allocation
         title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
         st.plotly_chart(bar_allocation(df, w, f"{fund} – Allocation by Segment", min_weight_display), use_container_width=True)
+
+        # Prospectus cap usage panel
+        render_cap_usage(df, tags, w, fund)
 
         # Exposures vs budgets
         title_with_help(f"{fund} – Factor Exposures vs Budgets", "KRD10y, Twist(30y–2y), and sDV01 IG/HY vs their budgets (dotted).")
