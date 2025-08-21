@@ -97,8 +97,6 @@ st.set_page_config(
 
 inject_brand_css()
 
-# Default file name if the user doesn't upload
-DEFAULT_INPUT_FILE = "Optimiser_Input_Final_v3.xlsx"
 SAMPLE_INPUT_FILE = "sample_data/Optimiser_Input_Sample.xlsx"
 
 # Sheets
@@ -279,12 +277,12 @@ def _rename_with_synonyms(df, required, synonyms):
 # -----------------------------
 
 @st.cache_data(show_spinner=False)
-def load_joined_input(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPUT_FILE) -> pd.DataFrame:
-    if uploaded_file_bytes is not None:
-        bio = io.BytesIO(uploaded_file_bytes)
-        xls = pd.ExcelFile(bio, engine="openpyxl")
-    else:
-        xls = pd.ExcelFile(path, engine="openpyxl")
+def load_joined_input(uploaded_file_bytes: bytes, path: str = None) -> pd.DataFrame:
+    if uploaded_file_bytes is None:
+        raise ValueError("No file provided")
+    
+    bio = io.BytesIO(uploaded_file_bytes)
+    xls = pd.ExcelFile(bio, engine="openpyxl")
 
     # Load sheets (sheet names fixed: 'Optimiser_Input' and 'MetaData')
     df_main = pd.read_excel(xls, sheet_name="Optimiser_Input")
@@ -889,11 +887,14 @@ Changing a slider updates the optimisation and the charts so you can see the imp
 # File input
 with st.expander("Data source (Excel) • sheets: \"Optimiser_Input\" and \"MetaData\". Join key: Bloomberg_Ticker. Required fields: Bloomberg_Ticker, Name, Instrument_Type, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Include.", expanded=False):
     upload = st.file_uploader("Upload Excel file with Optimiser_Input and MetaData sheets", type=["xlsx"], accept_multiple_files=False)
-    st.write("If no file is uploaded, the app will try to read:", f"`{DEFAULT_INPUT_FILE}`")
 
 # Load data
+if upload is None:
+    st.info("Please upload an Excel file with Optimiser_Input and MetaData sheets to continue.")
+    st.stop()
+
 try:
-    df = load_joined_input(upload.getvalue() if upload is not None else None, DEFAULT_INPUT_FILE)
+    df = load_joined_input(upload.getvalue(), None)
 except Exception as e:
     st.error(f"Failed to load input: {e}")
     st.stop()
