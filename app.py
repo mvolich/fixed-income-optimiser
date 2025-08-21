@@ -612,7 +612,7 @@ def bar_allocation(df, weights, title, min_weight_threshold=0.001):
     return apply_theme(fig)
 
 def exposures_vs_budgets(df, weights, budgets: dict, title: str):
-    """Overlay bars: grey = cap, blue = used (abs for KRD/Twist). Clean style matching Prospectus Cap Usage."""
+    """Vertical bar chart: grey = cap, blue = used (abs for KRD/Twist). Clean style with single title."""
     is_ig_mask = build_tags_from_meta(df)["is_ig"]
     oasd = df["OASD_Years"].values
 
@@ -632,7 +632,7 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
 
     fig = go.Figure()
     
-    # Add background bars (caps) in grey - matching Prospectus Cap Usage style
+    # Add background bars (caps) in grey
     fig.add_bar(
         name="Cap", 
         x=labels, 
@@ -642,7 +642,7 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
         opacity=0.7
     )
     
-    # Add foreground bars (used) in dark blue - matching Prospectus Cap Usage style
+    # Add foreground bars (used) in dark blue
     fig.add_bar(
         name="Used", 
         x=labels, 
@@ -651,16 +651,12 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
         showlegend=False
     )
     
-    # Update layout to match Prospectus Cap Usage style
+    # Update layout - no internal title to avoid duplication
     fig.update_layout(
-        title=dict(
-            text=title,
-            x=0.0,  # Left justify the title
-            xanchor="left"
-        ),
         barmode="overlay", 
-        height=280,  # Match Prospectus Cap Usage height
-        margin=dict(l=10, r=10, t=50, b=40),  # Match Prospectus Cap Usage margins
+        height=280,
+        margin=dict(l=10, r=10, t=20, b=40),  # Reduced top margin since no internal title
+        xaxis_title="Factor",
         yaxis_title="Years",
         showlegend=False,
         xaxis=dict(
