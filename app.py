@@ -603,7 +603,7 @@ def bar_allocation(df, weights, title):
 
 def exposures_vs_budgets(df, weights, budgets: dict, title: str):
     """Overlay bars: grey = cap, blue = used (abs for KRD/Twist). Avoid hlines to make mapping clear."""
-    is_ig_mask = tag_segments(df)["is_ig"]
+    is_ig_mask = build_tags_from_meta(df)["is_ig"]
     oasd = df["OASD_Years"].values
 
     used_vals = [
@@ -1186,7 +1186,7 @@ with tab_overview:
     for f in ["GFI","GCF","EYF"]:
         if f in fund_outputs:
             w = fund_outputs[f][0]["weights"]
-            is_ig_mask = tag_segments(df)["is_ig"]
+            is_ig_mask = build_tags_from_meta(df)["is_ig"]
             oasd = df["OASD_Years"].values
             vals = {
                 "KRD 10y": float(df["KRD_10y"].values @ w),
