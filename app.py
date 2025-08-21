@@ -632,21 +632,23 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
 
     fig = go.Figure()
     
-    # Add background bars (caps) in grey
+    # Add background bars (caps) in grey - horizontal orientation
     fig.add_bar(
         name="Cap", 
-        x=labels, 
-        y=cap_vals, 
+        y=labels,  # Categories on y-axis for horizontal bars
+        x=cap_vals,  # Values on x-axis for horizontal bars
+        orientation="h",  # Horizontal orientation
         marker_color=RB_COLORS["grey"],
         showlegend=False,
         opacity=0.7
     )
     
-    # Add foreground bars (used) in dark blue
+    # Add foreground bars (used) in dark blue - horizontal orientation
     fig.add_bar(
         name="Used", 
-        x=labels, 
-        y=used_vals, 
+        y=labels,  # Categories on y-axis for horizontal bars
+        x=used_vals,  # Values on x-axis for horizontal bars
+        orientation="h",  # Horizontal orientation
         marker_color=RB_COLORS["medblue"],
         showlegend=False
     )
@@ -656,18 +658,18 @@ def exposures_vs_budgets(df, weights, budgets: dict, title: str):
         barmode="overlay", 
         height=280,
         margin=dict(l=10, r=10, t=20, b=40),  # Reduced top margin since no internal title
-        xaxis_title="Factor",
-        yaxis_title="Years",
+        xaxis_title="Years",  # Values now on x-axis
+        yaxis_title="",  # No y-axis title needed for horizontal bars
         showlegend=False,
         xaxis=dict(
-            showgrid=False,
-            zeroline=False
-        ),
-        yaxis=dict(
-            showgrid=True,
+            showgrid=True,  # Horizontal grid lines for easier reading
             gridcolor="rgba(128,128,128,0.2)",
             zeroline=True,
             zerolinecolor="rgba(128,128,128,0.4)"
+        ),
+        yaxis=dict(
+            showgrid=False,  # No vertical grid lines needed
+            zeroline=False
         )
     )
     
