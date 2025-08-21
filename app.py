@@ -822,12 +822,7 @@ def render_cap_usage(df, tags, weights, fund):
         title=dict(
             text="Prospectus Cap Usage",
             x=0.5,  # Center the title
-            xanchor="center",
-            font=dict(
-                family="Ringside, Inter, Segoe UI, Roboto, Arial, sans-serif",
-                size=16,
-                color=RB_COLORS["blue"]
-            )
+            xanchor="center"
         ),
         barmode="stack",
         height=260,  # Reduced height since no legend
