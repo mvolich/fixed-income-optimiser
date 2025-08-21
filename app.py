@@ -821,8 +821,8 @@ def render_cap_usage(df, tags, weights, fund):
     fig.update_layout(
         title=dict(
             text="Prospectus Cap Usage",
-            x=0.5,  # Center the title
-            xanchor="center"
+            x=0.0,  # Left justify the title
+            xanchor="left"
         ),
         barmode="stack",
         height=260,  # Reduced height since no legend
