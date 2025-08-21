@@ -593,9 +593,21 @@ def kpi_number(value: float, kind: str = "pct"):
     fig.update_layout(template="rubrics", margin=dict(l=5, r=5, t=6, b=6), height=110, showlegend=False, title={"text": ""})
     return fig
 
-def bar_allocation(df, weights, title):
+def bar_allocation(df, weights, title, min_weight_threshold=0.001):
     ser = pd.Series(weights, index=df["Name"]).sort_values(ascending=False)
-    fig = go.Figure(go.Bar(x=ser.index, y=ser.values))
+    # Filter out weights below the threshold
+    ser = ser[ser >= min_weight_threshold]
+    if len(ser) == 0:
+        # If no weights above threshold, show a message
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No allocations above the minimum display threshold",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=14)
+        )
+    else:
+        fig = go.Figure(go.Bar(x=ser.index, y=ser.values))
     fig.update_layout(xaxis_title="Segment", yaxis_title="Weight", height=380, margin=dict(l=10,r=10,t=40,b=80))
     return apply_theme(fig)
 
@@ -1296,7 +1308,7 @@ with tab_fund:
 
         # Allocation
         title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
-        st.plotly_chart(bar_allocation(df, w, f"{fund} – Allocation by Segment"), use_container_width=True)
+        st.plotly_chart(bar_allocation(df, w, f"{fund} – Allocation by Segment", min_weight_display), use_container_width=True)
 
         # Exposures vs budgets
         title_with_help(f"{fund} – Factor Exposures vs Budgets", "KRD10y, Twist(30y–2y), and sDV01 IG/HY vs their budgets (dotted).")
