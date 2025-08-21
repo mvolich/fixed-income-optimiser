@@ -766,8 +766,7 @@ def render_cap_usage(df, tags, weights, fund):
     if len(tbl) == 0:
         return
 
-    st.markdown("**Prospectus cap usage (weights)**")
-    st.dataframe(tbl.style.format({"Used_pct":"{:.2f}%","Cap_pct":"{:.2f}%","Headroom_pct":"{:.2f}%"}), use_container_width=True, height=180)
+
 
     # Create a more intuitive horizontal bar chart with color gradient
     fig = go.Figure()
@@ -824,7 +823,11 @@ def render_cap_usage(df, tags, weights, fund):
             text="Prospectus Cap Usage",
             x=0.5,  # Center the title
             xanchor="center",
-            font=dict(size=16, color=RB_COLORS["blue"])
+            font=dict(
+                family="Ringside, Inter, Segoe UI, Roboto, Arial, sans-serif",
+                size=16,
+                color=RB_COLORS["blue"]
+            )
         ),
         barmode="stack",
         height=260,  # Reduced height since no legend
