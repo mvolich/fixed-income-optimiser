@@ -768,95 +768,60 @@ def render_cap_usage(df, tags, weights, fund):
 
 
 
-    # Create a more intuitive horizontal bar chart with color gradient
+    # Create a chart that mirrors the Factor Exposures vs Budgets style
     fig = go.Figure()
     
-    # Function to get color based on usage percentage
-    def get_usage_color(used_pct, cap_pct):
-        if cap_pct == 0:
-            return "red"  # No cap allowed
-        usage_ratio = used_pct / cap_pct if cap_pct > 0 else 0
-        # Green (low usage) to Red (high usage)
-        if usage_ratio <= 0.5:
-            # Green to Yellow
-            red = int(255 * usage_ratio * 2)
-            green = 255
-        else:
-            # Yellow to Red
-            red = 255
-            green = int(255 * (2 - usage_ratio * 2))
-        return f"rgb({red},{green},0)"
-    
-    # Add bars for each category
+    # Add background bars (caps) in grey - similar to budget bars in the reference chart
     for _, r in tbl.iterrows():
-        usage_color = get_usage_color(r["Used_pct"], r["Cap_pct"])
-        
-        # Used portion with color gradient
-        fig.add_bar(
-            y=[r["Cap"]], 
-            x=[r["Used_pct"]], 
-            orientation="h",
-            name="Used", 
-            marker_color=usage_color,
-            hovertemplate="<b>%{y}</b><br>Used: %{x:.1f}%<extra></extra>",
-            showlegend=False
-        )
-        
-        # Available portion (transparent/no fill)
-        if r["Headroom_pct"] > 0:
+        if r["Cap_pct"] > 0:
             fig.add_bar(
                 y=[r["Cap"]], 
-                x=[r["Headroom_pct"]], 
+                x=[r["Cap_pct"]], 
                 orientation="h",
-                name="Available", 
-                marker=dict(
-                    color="rgba(0,0,0,0)",  # Transparent fill
-                    line=dict(color="lightgray", width=1)  # Light gray border
-                ),
-                hovertemplate="<b>%{y}</b><br>Available: %{x:.1f}%<extra></extra>",
+                name="Cap", 
+                marker_color=RB_COLORS["grey"],  # Grey background like the reference chart
+                hovertemplate="<b>%{y}</b><br>Cap: %{x:.1f}%<extra></extra>",
+                showlegend=False,
+                opacity=0.7
+            )
+    
+    # Add foreground bars (used) in dark blue - similar to exposure bars in the reference chart
+    for _, r in tbl.iterrows():
+        if r["Used_pct"] > 0:
+            fig.add_bar(
+                y=[r["Cap"]], 
+                x=[r["Used_pct"]], 
+                orientation="h",
+                name="Used", 
+                marker_color=RB_COLORS["medblue"],  # Dark blue like the reference chart
+                hovertemplate="<b>%{y}</b><br>Used: %{x:.1f}%<extra></extra>",
                 showlegend=False
             )
     
-    # Update layout with title and no legend
+    # Update layout to match the reference chart style
     fig.update_layout(
         title=dict(
             text="Prospectus Cap Usage",
             x=0.0,  # Left justify the title
             xanchor="left"
         ),
-        barmode="stack",
-        height=260,  # Reduced height since no legend
-        margin=dict(l=10, r=10, t=50, b=20),  # Reduced top margin
+        barmode="overlay",  # Overlay mode like the reference chart
+        height=280,  # Slightly taller to match reference proportions
+        margin=dict(l=10, r=10, t=50, b=40),  # More bottom margin for x-axis labels
         xaxis_title="% of NAV",
         yaxis_title="",
-        showlegend=False  # Remove legend
+        showlegend=False,
+        xaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(128,128,128,0.2)",
+            zeroline=True,
+            zerolinecolor="rgba(128,128,128,0.4)"
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False
+        )
     )
-    
-    # Add value annotations on the bars for better readability
-    for _, r in tbl.iterrows():
-        # Annotate used value
-        if r["Used_pct"] > 0:
-            fig.add_annotation(
-                x=r["Used_pct"]/2,  # Center of used bar
-                y=r["Cap"],
-                text=f"{r['Used_pct']:.1f}%",
-                showarrow=False,
-                font=dict(color="white", size=10, family="Arial Black"),
-                xanchor="center",
-                yanchor="middle"
-            )
-        
-        # Annotate total cap value
-        if r["Cap_pct"] > 0:
-            fig.add_annotation(
-                x=r["Cap_pct"] + 1,  # Just beyond the bar
-                y=r["Cap"],
-                text=f"Cap: {r['Cap_pct']:.1f}%",
-                showarrow=False,
-                font=dict(color=RB_COLORS["blue"], size=9),
-                xanchor="left",
-                yanchor="middle"
-            )
     
     st.plotly_chart(fig, use_container_width=True, config=plotly_default_config)
 
