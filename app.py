@@ -139,33 +139,38 @@ def spacer(h=1):
 # Column normalization & validation
 # -----------------------------
 
-# Required columns in the *combined* table (after joining meta)
-REQUIRED_COLS = [
-    "Bloomberg_Ticker",    # <- join key
-    "Name",
-    "Instrument_Type",     # from MetaData (can also be in Optimiser_Input)
-    "Credit_Quality",      # from MetaData
-    "Include",
-    "Yield_Hedged_Pct", "Roll_Down_bps_1Y",
-    "OAD_Years", "OASD_Years",
-    "KRD_2y", "KRD_5y", "KRD_10y", "KRD_30y",
+# Required columns for main sheet (Optimiser_Input)
+REQUIRED_MAIN_COLS = [
+    "Bloomberg_Ticker","Name","Instrument_Type",
+    "Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years",
+    "KRD_2y","KRD_5y","KRD_10y","KRD_30y","Include"
 ]
 
-# IG ratings set for sDV01 IG/HY classification
-IG_RATINGS = {'AAA','AA+','AA','AA-','A+','A','A-','BBB+','BBB','BBB-','GOV','SOV','TREASURY'}
+# Required columns for MetaData sheet
+REQUIRED_META_COLS = [
+    "Bloomberg_Ticker",
+    # classification booleans maintained in MetaData:
+    "Is_Non_IG", "Is_EM", "Is_AT1", "Is_T2", "Is_Hybrid", "Is_Cash"   # if some are missing, we'll infer
+]
 
-# Tolerant column synonyms (lowercased)
-COLUMN_SYNONYMS = {
-    "bloomberg_ticker": ["ticker","bbg_ticker","bb_ticker","bbg","bloombergid","bloomberg_id"],
-    "instrument_type":  ["type","sleeve","sleeve_type"],
-    "credit_quality":   ["rating","quality","credit_rating","cq"],
-    "oasd_years":       ["asd_years"],
-    "krd_2y":           ["krd_2","krd2y"],
-    "krd_5y":           ["krd_5","krd5y"],
-    "krd_10y":          ["krd_10","krd10y"],
-    "krd_30y":          ["krd_30","krd30y"],
-    "yield_hedged_pct": ["yield_hedged","yield_hedged_%","yield_hedged_percent"],
+# Synonyms for main sheet columns
+MAIN_SYNONYMS = {
+    "bloomberg_ticker": ["ticker","bbg_ticker"],
+    "instrument_type": ["type","instr_type"],
+    "yield_hedged_pct": ["yield_hedged","yield_hedged_percent","yield_hedged_%"],
     "roll_down_bps_1y": ["roll_down_bps","rolldown_bps_1y"],
+    "oasd_years": ["spread_dur","sdur","asd_years"],
+}
+
+# Synonyms for MetaData sheet columns
+META_SYNONYMS = {
+    "bloomberg_ticker": ["ticker","bbg_ticker"],
+    "is_non_ig": ["non_ig","isnonig","is_high_yield"],
+    "is_em": ["is_emhc","is_em_hc","is_emerging"],
+    "is_at1": ["is_bank_at1","is_additional_tier1"],
+    "is_t2": ["is_bank_t2","is_tier2"],
+    "is_hybrid": ["is_global_hybrid","is_hybrids"],
+    "is_cash": ["is_tbill","is_cash_like"]
 }
 
 def _to_bool(s):
@@ -174,17 +179,8 @@ def _to_bool(s):
         {"true": True, "t": True, "1": True, "yes": True, "y": True, "false": False, "f": False, "0": False, "no": False, "n": False}
     ).fillna(False).astype(bool)
 
-def attach_metadata(df: pd.DataFrame, meta: pd.DataFrame) -> tuple[pd.DataFrame, list]:
-    """
-    Attach metadata to the input dataframe using Bloomberg_Ticker or Name as join key.
-    
-    Args:
-        df: Input dataframe
-        meta: Metadata dataframe
-        
-    Returns:
-        tuple: (merged_dataframe, list_of_tickers_without_metadata)
-    """
+
+
     # Normalise Bloomberg_Ticker and Name in both frames
     df_norm = df.copy()
     meta_norm = meta.copy()
@@ -258,29 +254,24 @@ def attach_metadata(df: pd.DataFrame, meta: pd.DataFrame) -> tuple[pd.DataFrame,
     
     return merged, missing_tickers
 
-def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    # Map lower-case names to actual case from the file
-    lower_to_actual = {c.lower().strip(): c for c in df.columns}
-    # Start with identity mapping
-    rename_map: dict[str, str] = {}
-    for target in REQUIRED_COLS:
-        target_l = target.lower()
-        if target_l in lower_to_actual:
-            # Column present with different case; ensure exact name
-            src = lower_to_actual[target_l]
-            if src != target:
-                rename_map[src] = target
+def _rename_with_synonyms(df, required, synonyms):
+    low = {c.lower().strip(): c for c in df.columns}
+    ren = {}
+    for need in required:
+        ln = need.lower()
+        if ln in low and low[ln] != need:
+            ren[low[ln]] = need
             continue
-        # Try synonyms
-        for alias in COLUMN_SYNONYMS.get(target_l, []):
-            if alias in lower_to_actual:
-                rename_map[lower_to_actual[alias]] = target
+        for alt in synonyms.get(ln, []):
+            if alt in low:
+                ren[low[alt]] = need
                 break
-    if rename_map:
-        df = df.rename(columns=rename_map)
-    missing = [c for c in REQUIRED_COLS if c not in df.columns]
+    if ren: df = df.rename(columns=ren)
+    missing = [c for c in required if c not in df.columns]
     if missing:
-        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+        # we will tolerate some MetaData missing (we'll infer), but not missing join key
+        if "Bloomberg_Ticker" in missing:
+            raise ValueError(f"Missing required column(s): {', '.join(missing)}")
     return df
 
 # -----------------------------
@@ -288,88 +279,73 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------------
 
 @st.cache_data(show_spinner=False)
-def load_input_table(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPUT_FILE) -> tuple[pd.DataFrame, list]:
-    # Read the workbook
+def load_joined_input(uploaded_file_bytes: bytes | None, path: str = DEFAULT_INPUT_FILE) -> pd.DataFrame:
     if uploaded_file_bytes is not None:
         bio = io.BytesIO(uploaded_file_bytes)
-        wb = pd.read_excel(bio, sheet_name=None, engine="openpyxl")
+        xls = pd.ExcelFile(bio, engine="openpyxl")
     else:
-        wb = pd.read_excel(path, sheet_name=None, engine="openpyxl")
+        xls = pd.ExcelFile(path, engine="openpyxl")
 
-    # Pull sheets if present
-    df_in = wb.get(INPUT_SHEET)
-    df_md = wb.get(METADATA_SHEET)
+    # Load sheets (sheet names fixed: 'Optimiser_Input' and 'MetaData')
+    df_main = pd.read_excel(xls, sheet_name="Optimiser_Input")
+    df_meta = pd.read_excel(xls, sheet_name="MetaData")
 
-    if df_in is None:
-        raise ValueError(f"Sheet '{INPUT_SHEET}' not found.")
+    df_main = _rename_with_synonyms(df_main, REQUIRED_MAIN_COLS, MAIN_SYNONYMS)
+    df_meta = _rename_with_synonyms(df_meta, REQUIRED_META_COLS, META_SYNONYMS)
 
-    # Normalise input sheet columns
-    df_in = _normalize_columns(df_in)
-
-    # If MetaData exists, attach it using the helper
-    missing_tickers = []
-    if df_md is not None:
-        df_in, missing_tickers = attach_metadata(df_in, df_md)
-    
     # Coerce numerics
-    num_cols = ["Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years","Convexity","KRD_2y","KRD_5y","KRD_10y","KRD_30y"]
-    for c in num_cols:
-        if c in df_in.columns:
-            df_in[c] = pd.to_numeric(df_in[c], errors="coerce").fillna(0.0)
+    for c in ["Yield_Hedged_Pct","Roll_Down_bps_1Y","OAD_Years","OASD_Years","KRD_2y","KRD_5y","KRD_10y","KRD_30y"]:
+        if c in df_main.columns:
+            df_main[c] = pd.to_numeric(df_main[c], errors="coerce").fillna(0.0)
 
-    # Compute expected return (pp)
-    df_in["ExpRet_pct"] = df_in.get("Yield_Hedged_Pct", 0.0) + df_in.get("Roll_Down_bps_1Y", 0.0) / 100.0
+    # Merge on Bloomberg_Ticker
+    df = df_main.merge(df_meta, on="Bloomberg_Ticker", how="left", suffixes=("", "_meta"))
 
-    # Filter Include = TRUE if provided
-    if "Include" in df_in.columns:
-        df_in = df_in[df_in["Include"] == True].copy()
+    # Build expected return (carry + roll)
+    df["ExpRet_pct"] = df.get("Yield_Hedged_Pct", 0.0) + df.get("Roll_Down_bps_1Y", 0.0)/100.0
 
-    df_in.reset_index(drop=True, inplace=True)
+    # Include filter
+    if "Include" in df.columns:
+        df = df[df["Include"] == True].copy()
 
-    # Validate that the combined table has what the app needs
-    missing = [c for c in REQUIRED_COLS if c not in df_in.columns]
-    if missing:
-        raise ValueError(f"Missing required columns after join: {', '.join(missing)}")
+    # Ensure boolean flags exist (fallback inference if MetaData omitted some)
+    def _bool(col, fallback=None):
+        if col in df.columns: return df[col].fillna(False).astype(bool)
+        if fallback is not None: return fallback
+        return pd.Series(False, index=df.index)
 
-    return df_in, missing_tickers
+    is_at1    = _bool("Is_AT1",    df["Instrument_Type"].str.upper().str.contains("AT1", na=False))
+    is_t2     = _bool("Is_T2",     df["Instrument_Type"].str.upper().str.contains("T2",  na=False))
+    is_em     = _bool("Is_EM",     df["Instrument_Type"].str.upper().eq("EM"))
+    is_hybrid = _bool("Is_Hybrid", df["Name"].str.upper().str.contains("HYBRID", na=False))
+    is_cash   = _bool("Is_Cash",   df["Instrument_Type"].str.upper().eq("CASH") | df["Name"].str.upper().str.contains("T-BILL|TBILL", na=False))
+    # Non‑IG from MetaData, else conservative fallback (treat AT1/T2/EM as non‑IG)
+    is_non_ig = _bool("Is_Non_IG", is_at1 | is_t2 | is_em)
 
-def tag_segments(df: pd.DataFrame) -> dict:
-    """
-    Tag segments using MetaData flags when available, falling back to heuristics.
-    Uses MetaData's Is_Non_IG for prospectus caps, and IG_RATINGS for sDV01 classification.
-    """
-    # Prefer explicit MetaData flags when present
-    def has(col): return (col in df.columns)
-    
-    # Booleans from MetaData (if present)
-    is_tbill  = df["Is_TBill"].astype(bool)   if has("Is_TBill")   else df["Name"].fillna("").str.upper().str.contains("TBILL", na=False)
-    is_at1    = df["Is_AT1"].astype(bool)     if has("Is_AT1")     else df["Name"].fillna("").str.upper().str.contains("AT1",   na=False)
-    is_hybrid = df["Is_Hybrid"].astype(bool)  if has("Is_Hybrid")  else df["Name"].fillna("").str.upper().str.contains("GLOBAL HYBRID|HYBRID", na=False)
-    is_em     = df["Is_EM"].astype(bool)      if has("Is_EM")      else (df.get("Instrument_Type","").astype(str).str.upper() == "EM")
-    
-    # Use MetaData's Is_Non_IG directly for prospectus caps
-    is_non_ig = df["Is_Non_IG"].astype(bool) if has("Is_Non_IG") else False
-    
-    # Credit quality from MetaData (or input)
-    qual = df.get("Credit_Quality", pd.Series([""]*len(df))).astype(str).str.upper()
-    is_hy_rating = qual.isin(["BB","B","CCC","HY"])
-    
-    # If Is_Non_IG wasn't supplied, infer it as HY ratings OR EM OR AT1/Hybrid
-    if not has("Is_Non_IG"):
-        is_non_ig = (is_hy_rating | is_em | is_at1 | is_hybrid)
-    
-    # IG classification for sDV01 charts (use rating-based approach)
-    df['Is_IG_by_rating'] = df['Credit_Quality'].str.upper().isin(IG_RATINGS)
-    is_ig = df['Is_IG_by_rating'].values
-    
+    df["Is_AT1"] = is_at1
+    df["Is_T2"] = is_t2
+    df["Is_EM"] = is_em
+    df["Is_Hybrid"] = is_hybrid
+    df["Is_Cash"] = is_cash
+    df["Is_Non_IG"] = is_non_ig
+
+    # Build IG flag = not Non‑IG (gov implied IG)
+    df["Is_IG"] = ~df["Is_Non_IG"]
+
+    df.reset_index(drop=True, inplace=True)
+    return df
+
+def build_tags_from_meta(df: pd.DataFrame) -> dict:
     return {
-        "is_tbill":   np.asarray(is_tbill,   dtype=bool),
-        "is_at1":     np.asarray(is_at1,     dtype=bool),
-        "is_hybrid":  np.asarray(is_hybrid,  dtype=bool),
-        "is_em":      np.asarray(is_em,      dtype=bool),
-        "is_non_ig":  np.asarray(is_non_ig,  dtype=bool),
-        "is_ig":      np.asarray(is_ig,      dtype=bool),
-        "is_hy_rating": np.asarray(is_hy_rating, dtype=bool),
+        "is_tbill":  df["Is_Cash"].values.astype(bool),
+        "is_at1":    df["Is_AT1"].values.astype(bool),
+        "is_t2":     df["Is_T2"].values.astype(bool),
+        "is_hybrid": df["Is_Hybrid"].values.astype(bool),
+        "is_em":     df["Is_EM"].values.astype(bool),
+        "is_non_ig": df["Is_Non_IG"].values.astype(bool),
+        "is_ig":     df["Is_IG"].values.astype(bool),
+        # HY bucket for spreads = non‑IG excluding AT1/EM so they can be shocked with specific vectors
+        "is_hy_rating": (df["Is_Non_IG"] & ~df["Is_AT1"] & ~df["Is_EM"]).values.astype(bool),
     }
 
 # -----------------------------
@@ -758,6 +734,42 @@ def cap_usage_chart(usage: dict) -> go.Figure:
 
 # --- Prospectus cap usage visuals -------------------------------------------
 
+def render_cap_usage(df, tags, weights, fund):
+    caps = FUND_CONSTRAINTS.get(fund, {})
+    used = {
+        "Non‑IG": float(tags["is_non_ig"].astype(float) @ weights),
+        "EM":     float(tags["is_em"].astype(float)     @ weights),
+        "Hybrid": float(tags["is_hybrid"].astype(float) @ weights),
+        "AT1":    float(tags["is_at1"].astype(float)    @ weights),
+        "Cash":   float(tags["is_tbill"].astype(float)  @ weights),
+    }
+    # Build a small table and a horizontal bar viz (used vs cap)
+    rows = []
+    for k, u in used.items():
+        cap = caps.get(f"max_{k.lower()}", None)  # keys: max_non_ig, max_em, max_hybrid, max_at1, max_cash
+        if cap is None: 
+            continue
+        rows.append({"Cap": k, "Used_pct": u*100, "Cap_pct": cap*100, "Headroom_pct": (cap-u)*100})
+    tbl = pd.DataFrame(rows)
+    if len(tbl) == 0:
+        return
+
+    st.markdown("**Prospectus cap usage (weights)**")
+    st.dataframe(tbl.style.format({"Used_pct":"{:.2f}%","Cap_pct":"{:.2f}%","Headroom_pct":"{:.2f}%"}), use_container_width=True, height=180)
+
+    fig = go.Figure()
+    for _, r in tbl.iterrows():
+        fig.add_bar(
+            y=[r["Cap"]], x=[max(r["Used_pct"],0)], orientation="h",
+            name="Used", marker_color=RB_COLORS["medblue"]
+        )
+        fig.add_bar(
+            y=[r["Cap"]], x=[max(r["Cap_pct"] - max(r["Used_pct"],0),0)], orientation="h",
+            name="Headroom", marker_color=RB_COLORS["ltblue"]
+        )
+    fig.update_layout(barmode="stack", height=220, margin=dict(l=10,r=10,t=30,b=10), xaxis_title="% of NAV", yaxis_title="")
+    st.plotly_chart(fig, use_container_width=True, config=plotly_default_config)
+
 def cap_usage_gauge(label: str, used_w: float, cap_w: float) -> go.Figure:
     """
     Gauge showing the portfolio weight used (as %) against the cap (as %).
@@ -875,13 +887,13 @@ Changing a slider updates the optimisation and the charts so you can see the imp
     )
 
 # File input
-with st.expander("Data source (Excel) • sheets: \"Optimiser_Input\" and \"MetaData\". Join key: Bloomberg_Ticker. Required fields (after join): Bloomberg_Ticker, Name, Instrument_Type, Credit_Quality, Include, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y.", expanded=False):
-    upload = st.file_uploader("Upload Optimiser_Input_Final_v3.xlsx (sheet Optimiser_Input)", type=["xlsx"], accept_multiple_files=False)
+with st.expander("Data source (Excel) • sheets: \"Optimiser_Input\" and \"MetaData\". Join key: Bloomberg_Ticker. Required fields: Bloomberg_Ticker, Name, Instrument_Type, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Include.", expanded=False):
+    upload = st.file_uploader("Upload Excel file with Optimiser_Input and MetaData sheets", type=["xlsx"], accept_multiple_files=False)
     st.write("If no file is uploaded, the app will try to read:", f"`{DEFAULT_INPUT_FILE}`")
 
 # Load data
 try:
-    df, missing_tickers = load_input_table(upload.getvalue() if upload is not None else None, DEFAULT_INPUT_FILE)
+    df = load_joined_input(upload.getvalue() if upload is not None else None, DEFAULT_INPUT_FILE)
 except Exception as e:
     st.error(f"Failed to load input: {e}")
     st.stop()
@@ -890,12 +902,7 @@ if len(df) == 0:
     st.error("No rows found after applying Include==True. Please check the input file.")
     st.stop()
 
-# Show info badge for tickers without metadata
-if missing_tickers and len(missing_tickers) > 0:
-    with st.expander(f"ℹ️ {len(missing_tickers)} tickers using heuristic classification", expanded=False):
-        st.info(f"The following tickers fell back to heuristic classification (no MetaData found): {', '.join(missing_tickers[:10])}{'...' if len(missing_tickers) > 10 else ''}")
-
-tags = tag_segments(df)
+tags = build_tags_from_meta(df)
 
 # Controls (global)
 with st.sidebar:
@@ -1006,6 +1013,13 @@ with st.sidebar:
     st.divider()
     if st.button("Reset all controls to defaults"):
         st.experimental_rerun()
+
+    # Quick debug expander
+    with st.expander("Data sanity (debug)", expanded=False):
+        st.write("Rows:", len(df))
+        for k in ["Is_Non_IG","Is_EM","Is_AT1","Is_T2","Is_Hybrid","Is_Cash","Is_IG"]:
+            if k in df.columns:
+                st.write(f"{k} = True:", int(df[k].sum()))
 
     st.subheader("Display options")
     min_weight_display = st.slider(
@@ -1276,24 +1290,8 @@ with tab_fund:
         status = "within cap" if var99 <= cap else "over cap"
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
 
-        # --- Prospectus cap usage (proposed portfolio vs caps) -----------------------
-        # Build the effective caps from the sliders shown on the left
-        fc_now = {
-            "max_non_ig": max_non_ig,
-            "max_em":     max_em,
-            "max_cash":   max_cash,
-            "max_at1":    max_at1,
-        }
-        if "max_hybrid" in FUND_CONSTRAINTS[fund]:
-            fc_now["max_hybrid"] = max_hybrid
-
-        # Calculate and render usage
-        usage = calc_cap_usage(w, tags, fc_now)
-        title_with_help(
-            "Prospectus cap usage",
-            "Bars show how much of each cap the proposed portfolio uses (blue) versus the cap (grey). If the blue bar exceeds the grey bar, the cap is breached."
-        )
-        st.plotly_chart(cap_usage_chart(usage), use_container_width=True)
+        # Prospectus cap usage panel
+        render_cap_usage(df, tags, w, fund)
 
         # Allocation
         title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
