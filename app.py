@@ -152,7 +152,7 @@ except Exception as e:
 # -----------------------------
 
 st.set_page_config(
-    page_title="Rubrics Fixed Income Optimiser",
+    page_title="Rubrics Asset Allocation Optimiser",
     page_icon="https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -1057,11 +1057,7 @@ st.markdown("""
 </style>
 <div class="rb-header">
   <div class="rb-title">
-    <h1>Rubrics Fixed Income Optimiser</h1>
-    <div style="opacity:.85; font-size:.95rem;">
-      Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk,
-      Monte‑Carlo VaR, and fund‑specific prospectus caps.
-    </div>
+    <h1>Rubrics Asset Allocation Optimiser</h1>
   </div>
   <div class="rb-logo">
     <img src="https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png" alt="Rubrics Logo"/>
