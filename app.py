@@ -957,25 +957,8 @@ st.title("Rubrics Fixed Income Optimiser")
 st.caption("Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk, Monte‑Carlo VaR, and fund‑specific prospectus caps.")
 spacer(1)
 
-with st.expander("How this optimiser works & what the controls do", expanded=False):
-    st.markdown(
-        """
-- **Objective**: chooses the optimisation target (e.g., *Max Return*, *Max Sharpe*).
-- **Expected return (%)**: carry + 1‑year roll‑down.
-- **VaR/CVaR (monthly, 99%)**: simulated 1‑month loss tail using rate/spread shocks.
-- **Factor budgets**:
-  - **KRD** (Key Rate Duration): rate sensitivity at selected maturities.
-  - **Twist (30y–2y)**: steepener/flattening exposure budget.
-  - **sDV01 IG/HY**: credit spread duration (IG vs Non‑IG sleeves).
-- **Prospectus caps**: hard limits per fund (Non‑IG, EM, Hybrid, AT1, Cash).
-- **Turnover**: limits change per rebalance and applies a penalty (in bps per 100% turnover).
-Changing a slider updates the optimisation and the charts so you can see the impact immediately.
-"""
-    )
-
-# File input
-with st.expander("Data source (Excel) • sheets: \"Optimiser_Input\" and \"MetaData\". Join key: Bloomberg_Ticker. Required fields: Bloomberg_Ticker, Name, Instrument_Type, Yield_Hedged_Pct, Roll_Down_bps_1Y, OAD_Years, OASD_Years, KRD_2y/5y/10y/30y, Include.", expanded=False):
-    upload = st.file_uploader("Upload Excel file with Optimiser_Input and MetaData sheets", type=["xlsx"], accept_multiple_files=False)
+# File input - only show when no file is uploaded
+upload = st.file_uploader("Upload Excel file with Optimiser_Input and MetaData sheets", type=["xlsx"], accept_multiple_files=False)
 
 # Load data
 if upload is None:
