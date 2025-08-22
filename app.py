@@ -300,7 +300,7 @@ def load_joined_input(uploaded_file_bytes: bytes, path: str = None) -> pd.DataFr
     df = df_main.merge(df_meta, on="Bloomberg_Ticker", how="left", suffixes=("", "_meta"))
 
     # Build expected return (carry + roll)
-    df["ExpRet_pct"] = df.get("Yield_Hedged_Pct", 0.0) + df.get("Roll_Down_bps_1Y", 0.0)/100.0
+    df["ExpRet_pct"] = df.get("Yield_Hedged_Pct", 0.0) + df.get("Roll_Down_bps_1Y", 0.0)
 
     # Include filter
     if "Include" in df.columns:
@@ -690,7 +690,7 @@ def contributions_table(df, weights, mu):
         # mu is decimal; show percent contribution in the table
         "ER_Contribution_pct": weights * (mu * 100.0),
         "Yield_pct": df["Yield_Hedged_Pct"].values,
-        "RollDown_pct": df["Roll_Down_bps_1Y"].values/100.0,
+        "RollDown_pct": df["Roll_Down_bps_1Y"].values,
         "OAD_Years": df["OAD_Years"].values,
         "OASD_Years": df["OASD_Years"].values
     }).sort_values("Weight", ascending=False)
