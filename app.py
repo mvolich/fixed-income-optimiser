@@ -50,10 +50,13 @@ def inject_brand_css():
         color: #0b0c0c;
       }
 
-      /* Tabs */
+      /* Tabs (updated for left/right split) */
       .stTabs [data-baseweb="tab-list"]{
-        gap:12px; justify-content:space-between; border-bottom:none;
+        display:flex !important;
+        width:100% !important;
+        gap:12px; border-bottom:none;
       }
+      /* General tab look (keep yours) */
       .stTabs [data-baseweb="tab"]{
         background-color: var(--rb-grey);
         border-radius: 4px 4px 0 0;
@@ -65,6 +68,11 @@ def inject_brand_css():
         background-color: var(--rb-mblue) !important;
         color:#fff !important;
         border-bottom: 3px solid rgb(207,69,32) !important;
+      }
+      /* Push the LAST tab to the right edge */
+      .stTabs [data-baseweb="tab-list"] > [data-baseweb="tab"]:last-child,
+      .stTabs [data-baseweb="tab-list"] > [role="tab"]:last-child {
+        margin-left:auto !important;
       }
 
       /* Buttons */
@@ -1034,14 +1042,32 @@ def render_cap_usage_section(fund: str, w: np.ndarray, tags: dict, fc_current: d
 # 5) App UI
 # -----------------------------
 
-col1, col_sp, col2 = st.columns([5,0.5,3])
-with col1:
-    st.markdown('<h1 style="font-size: 3.5rem; color: var(--rb-blue); font-weight: 700; margin-bottom: 0.5rem;">Rubrics Fixed Income Optimiser</h1>', unsafe_allow_html=True)
-    st.caption("Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk, Monte‑Carlo VaR, and fund‑specific prospectus caps.")
-with col2:
-    st.markdown('<div style="text-align:right; margin-right: -50px;">', unsafe_allow_html=True)
-    st.image("https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png", width=280)
-    st.markdown('</div>', unsafe_allow_html=True)
+# ----- Header (flex: title left, logo right) -----
+st.markdown("""
+<style>
+  .rb-header { display:flex; align-items:flex-start; justify-content:space-between; }
+  .rb-title h1 {
+    font-size: 3.5rem; color: var(--rb-blue); font-weight: 700; margin: 0 0 .5rem 0;
+  }
+  .rb-logo img { height: 48px; margin-top: 6px; }
+  @media (max-width: 1200px){
+    .rb-title h1 { font-size: 2.6rem; }
+    .rb-logo img { height: 42px; }
+  }
+</style>
+<div class="rb-header">
+  <div class="rb-title">
+    <h1>Rubrics Fixed Income Optimiser</h1>
+    <div style="opacity:.85; font-size:.95rem;">
+      Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk,
+      Monte‑Carlo VaR, and fund‑specific prospectus caps.
+    </div>
+  </div>
+  <div class="rb-logo">
+    <img src="https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png" alt="Rubrics Logo"/>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 spacer(1)
 
 # File input - only show when no file is uploaded
