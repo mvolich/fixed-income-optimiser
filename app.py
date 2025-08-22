@@ -1064,6 +1064,9 @@ if len(df) == 0:
 
 tags = build_tags_from_meta(df)
 
+# Top-level tabs
+tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail"])
+
 # Controls (global)
 with st.sidebar:
     st.header("Global Settings")
@@ -1234,8 +1237,7 @@ def run_fund(fund: str, objective: str, var_cap_override: float | None = None, p
     port_pnl = pnl_matrix_assets @ w
     return w, metrics, port_pnl
 
-# Top-level tabs
-tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail"])
+
 
 # -----------------------------
 # Overview Tab: run each fund with its own VaR cap and defaults
