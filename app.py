@@ -32,17 +32,71 @@ FUND_COLOR = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_C
 def inject_brand_css():
     st.markdown("""
     <style>
-      /* If you have Ringside as a webfont, swap these @imports for @font-face rules. */
+      /* Fonts: use Ringside if you have a licensed webfont; otherwise fallback to Inter. */
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-      :root{ --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520; }
-      html, body, [class*="css"] { font-family: "Ringside", Inter, "Segoe UI", Roboto, Arial, sans-serif; }
-      .stTabs [data-baseweb="tab-list"]{ border-bottom:1px solid var(--rb-grey); }
-      .stTabs [data-baseweb="tab-highlight"]{ background:var(--rb-blue); }
 
-      /* --- tooltip title row for charts/tables/KPIs --- */
-      .rb-title { display:flex; align-items:center; justify-content:space-between; margin: .4rem 0 .2rem 0; }
+      :root{
+        --rb-blue:#001E4F;      /* Rubrics Blue   */
+        --rb-mblue:#2C5697;     /* Medium Blue    */
+        --rb-lblue:#7BA4DB;     /* Light Blue     */
+        --rb-grey:#D8D7DF;      /* Grey           */
+        --rb-orange:#CF4520;    /* Orange         */
+      }
+
+      /* App surface + global font */
+      html, body, .stApp, [class*="css"] {
+        background-color: #f8f9fa;
+        font-family: "Ringside", Inter, "Segoe UI", Roboto, Arial, sans-serif !important;
+        color: #0b0c0c;
+      }
+
+      /* Tabs */
+      .stTabs [data-baseweb="tab-list"]{
+        gap:12px; justify-content:space-between; border-bottom:none;
+      }
+      .stTabs [data-baseweb="tab"]{
+        background-color: var(--rb-grey);
+        border-radius: 4px 4px 0 0;
+        color: var(--rb-blue);
+        font-weight: 600;
+        min-width: 180px; text-align:center; padding:8px 16px;
+      }
+      .stTabs [aria-selected="true"]{
+        background-color: var(--rb-mblue) !important;
+        color:#fff !important;
+      }
+
+      /* Buttons */
+      .stButton > button, .stDownloadButton > button {
+        background-color: var(--rb-mblue); color:#fff; border:none;
+        border-radius:4px; padding:8px 16px; font-weight:600;
+      }
+      .stButton > button:hover, .stDownloadButton > button:hover {
+        background-color: var(--rb-blue);
+      }
+
+      /* Selects / Multiselects */
+      .stSelectbox > div > div,
+      .stMultiSelect > div > div {
+        background-color:#fff; border:1px solid var(--rb-grey);
+        font-family: "Ringside", Inter, "Segoe UI", Roboto, Arial, sans-serif !important;
+      }
+      .stMultiSelect [data-baseweb="tag"]{
+        background-color: var(--rb-mblue) !important; color:#fff !important;
+        border-color: var(--rb-mblue) !important;
+      }
+
+      /* Sliders */
+      .stSlider [role="slider"]{ background-color: var(--rb-mblue) !important; }
+      .stSlider > div > div > div > div { background-color: var(--rb-mblue); }
+
+      /* Headings */
+      h1, h2, h3, h4, h5, h6 { color: var(--rb-blue) !important; font-weight:700; }
+
+      /* KPI titles / help icon row */
+      .rb-title { display:flex; align-items:center; justify-content:space-between; margin:.4rem 0 .2rem 0; }
       .rb-title .rb-label { font-weight:600; color: var(--rb-blue); }
-      .rb-help { color: var(--rb-mblue); cursor: help; font-weight:700; user-select:none; }
+      .rb-help { color: var(--rb-mblue); cursor:help; font-weight:700; user-select:none; }
       .rb-help:hover { color: var(--rb-orange); }
     </style>
     """, unsafe_allow_html=True)
@@ -61,7 +115,7 @@ def impact_text(increase: str, decrease: str) -> str:
 
 BRAND_TEMPLATE = go.layout.Template(
     layout=go.Layout(
-        colorway=[RB_COLORS["blue"], RB_COLORS["medblue"], RB_COLORS["ltblue"], RB_COLORS["grey"], RB_COLORS["orange"]],
+        colorway=["#001E4F","#2C5697","#7BA4DB","#D8D7DF","#CF4520"],
         font=dict(family="Ringside, Inter, Segoe UI, Roboto, Arial, sans-serif"),
         legend=dict(orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right"),
         margin=dict(l=10, r=10, t=40, b=40),
@@ -90,7 +144,7 @@ except Exception as e:
 
 st.set_page_config(
     page_title="Rubrics Fixed Income Optimiser",
-    page_icon=None,
+    page_icon="https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -953,8 +1007,14 @@ def render_cap_usage_section(fund: str, w: np.ndarray, tags: dict, fc_current: d
 # 5) App UI
 # -----------------------------
 
-st.title("Rubrics Fixed Income Optimiser")
-st.caption("Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk, Monte‑Carlo VaR, and fund‑specific prospectus caps.")
+col1, col_sp, col2 = st.columns([6,1,2])
+with col1:
+    st.title("Rubrics Fixed Income Optimiser")
+    st.caption("Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk, Monte‑Carlo VaR, and fund‑specific prospectus caps.")
+with col2:
+    st.markdown('<div style="text-align:right;">', unsafe_allow_html=True)
+    st.image("https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png", width=220)
+    st.markdown('</div>', unsafe_allow_html=True)
 spacer(1)
 
 # File input - only show when no file is uploaded
