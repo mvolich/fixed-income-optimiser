@@ -27,7 +27,7 @@ RB_COLORS = {
     "grey":   "#D8D7DF",  # Rubrics Grey
     "orange": "#CF4520",  # Rubrics Orange
 }
-FUND_COLOR = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"], "Aggregate": RB_COLORS["orange"]}
+FUND_COLOR = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_COLORS["ltblue"]}
 
 def inject_brand_css():
     st.markdown("""
@@ -1176,9 +1176,8 @@ with tab_overview:
             st.warning(f"{f}: {metrics.get('status','')} — {metrics.get('message','')}")
 
     # KPI tiles
-    cols = st.columns(4)
+    cols = st.columns(3)
     idx = 0
-    agg_weights = None
     for f in ["GFI","GCF","EYF"]:
         if f in fund_outputs:
             m,_ = fund_outputs[f]
@@ -1191,7 +1190,7 @@ with tab_overview:
 
                 title_with_help(
                     f"{f} – VaR99 1M",
-                    "One‑month, 99% Value at Risk (loss). Lower is better. Compared against the fund’s VaR cap."
+                    "One‑month, 99% Value at Risk (loss). Lower is better. Compared against the fund's VaR cap."
                 )
                 st.plotly_chart(kpi_number(m["VaR99_1M"], kind="pct"), use_container_width=True, config=plotly_default_config, key=f"kpi_{f}_var")
 
@@ -1199,43 +1198,17 @@ with tab_overview:
                 status = "within cap" if m["VaR99_1M"] <= cap else "over cap"
                 st.caption(f"VaR cap {cap*100:.2f}% — {status}")
             idx += 1
-    # Aggregate (configurable)
-    agg_mode = st.radio(
-        "Aggregate weighting:", ["Equal-weight", "By expected return (proxy AUM)"], horizontal=True,
-        help=("How to combine GFI/GCF/EYF into an aggregate. Equal-weight treats funds the same; "
-              "'By expected return' tilts toward funds with higher ER.") +
-             impact_text("tilts more to high-ER fund(s)", "gives each fund equal say")
-    )
-    if len(fund_outputs) > 0:
-        Ws = np.vstack([fund_outputs[f][0]["weights"] for f in fund_outputs])
-        if agg_mode == "Equal-weight":
-            agg_weights = Ws.mean(axis=0)
-        else:
-            ers = np.array([fund_outputs[f][0]["ExpRet_pct"] for f in fund_outputs])  # percent values
-            w_funds = ers / ers.sum() if ers.sum() != 0 else np.ones_like(ers) / len(ers)
-            agg_weights = (w_funds.reshape(-1,1) * Ws).sum(axis=0)
-        port_pnl_agg = pnl_matrix_assets @ agg_weights
-        var99_agg, cvar99_agg = var_cvar_from_pnl(port_pnl_agg, 0.99)
-        er_agg_pct = float(mu @ agg_weights) * 100.0
-        with cols[3]:
-            title_with_help("Aggregate – Expected Return", "Expected return of the equal/ER‑weighted aggregate (%).")
-            st.plotly_chart(kpi_number(er_agg_pct, kind="pp"), use_container_width=True, config=plotly_default_config, key="kpi_agg_er")
-
-            title_with_help("Aggregate – VaR99 1M", "One‑month, 99% VaR for the aggregate. Lower is better.")
-            st.plotly_chart(kpi_number(var99_agg, kind="pct"), use_container_width=True, config=plotly_default_config, key="kpi_agg_var")
 
     spacer(1)
     # Allocation by segment (stacked bars)
     title_with_help(
-        "Allocation by segment (GFI / GCF / EYF / Aggregate)",
+        "Allocation by segment (GFI / GCF / EYF)",
         "Weights per sleeve. Use the factor budgets, VaR caps and prospectus caps to steer these weights."
     )
     alloc_df = pd.DataFrame(index=df["Name"])
     for f in ["GFI","GCF","EYF"]:
         if f in fund_outputs:
             alloc_df[f] = fund_outputs[f][0]["weights"]
-    if agg_weights is not None:
-        alloc_df["Aggregate"] = agg_weights
     alloc_df = alloc_df.fillna(0.0)
     alloc_df = alloc_df.mask(alloc_df.abs() < min_weight_display, other=0.0)
     alloc_df_display = alloc_df.apply(lambda col: pd.Series(fmt_weight(col), index=alloc_df.index))
