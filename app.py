@@ -1034,13 +1034,13 @@ def render_cap_usage_section(fund: str, w: np.ndarray, tags: dict, fc_current: d
 # 5) App UI
 # -----------------------------
 
-col1, col_sp, col2 = st.columns([6,1,2])
+col1, col_sp, col2 = st.columns([5,0.5,3])
 with col1:
-    st.title("Rubrics Fixed Income Optimiser")
+    st.markdown('<h1 style="font-size: 3.5rem; color: var(--rb-blue); font-weight: 700; margin-bottom: 0.5rem;">Rubrics Fixed Income Optimiser</h1>', unsafe_allow_html=True)
     st.caption("Forward‑looking allocation using carry + roll expected returns, KRD/sDV01 factor risk, Monte‑Carlo VaR, and fund‑specific prospectus caps.")
 with col2:
-    st.markdown('<div style="text-align:right;">', unsafe_allow_html=True)
-    st.image("https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png", width=220)
+    st.markdown('<div style="text-align:right; margin-right: -50px;">', unsafe_allow_html=True)
+    st.image("https://rubricsam.com/wp-content/uploads/2021/01/cropped-rubrics-logo-tight.png", width=280)
     st.markdown('</div>', unsafe_allow_html=True)
 spacer(1)
 
