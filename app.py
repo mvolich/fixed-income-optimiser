@@ -64,6 +64,7 @@ def inject_brand_css():
       .stTabs [aria-selected="true"]{
         background-color: var(--rb-mblue) !important;
         color:#fff !important;
+        border-bottom: 3px solid rgb(207,69,32) !important;
       }
 
       /* Buttons */
@@ -1208,7 +1209,7 @@ def run_fund(fund: str, objective: str, var_cap_override: float | None = None, p
     return w, metrics, port_pnl
 
 # Top-level tabs
-tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail (Tune One)"])
+tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail"])
 
 # -----------------------------
 # Overview Tab: run each fund with its own VaR cap and defaults
