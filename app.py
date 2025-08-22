@@ -150,6 +150,32 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown("""
+<style>
+  /* Import a font family named 'Ringside' (fallbacks will apply if unavailable) */
+  @import url('https://fonts.googleapis.com/css2?family=Ringside:wght@300;400;500;600;700&display=swap');
+
+  /* Force the font everywhere */
+  * { font-family: 'Ringside', sans-serif !important; }
+  .stApp { font-family: 'Ringside', sans-serif !important; }
+
+  /* Common widget surfaces also use it explicitly */
+  .stMarkdown, .stDataFrame, .stSelectbox, .stMultiSelect, .stTextInput,
+  .stNumberInput, .stSlider, .stButton, .stDownloadButton {
+    font-family: 'Ringside', sans-serif !important;
+  }
+
+  /* Tabs */
+  .stTabs [data-baseweb="tab-list"] { gap: 12px; }
+  .stTabs [data-baseweb="tab"] {
+    font-family: 'Ringside', sans-serif !important;
+  }
+
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 { font-family: 'Ringside', sans-serif !important; }
+</style>
+""", unsafe_allow_html=True)
+
 inject_brand_css()
 
 SAMPLE_INPUT_FILE = "sample_data/Optimiser_Input_Sample.xlsx"
