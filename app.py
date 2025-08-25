@@ -11,7 +11,6 @@
 #   pip install streamlit pandas numpy plotly cvxpy osqp openpyxl
 
 import io
-import json
 import math
 import numpy as np
 import pandas as pd
@@ -1199,12 +1198,7 @@ with st.sidebar:
     if st.button("Reset all controls to defaults"):
         st.experimental_rerun()
 
-    # Quick debug expander
-    with st.expander("Data sanity (debug)", expanded=False):
-        st.write("Rows:", len(df))
-        for k in ["Is_Non_IG","Is_EM","Is_AT1","Is_T2","Is_Hybrid","Is_Cash","Is_IG"]:
-            if k in df.columns:
-                st.write(f"{k} = True:", int(df[k].sum()))
+    # (Removed: Data sanity debug expander)
 
     st.subheader("Display options")
     min_weight_display = st.slider(
@@ -1214,24 +1208,7 @@ with st.sidebar:
                          "reveals smaller positions")
     )
 
-    with st.expander("Presets", expanded=False):
-        if st.button("Save current settings"):
-            preset = dict(
-                rates=dict(RATES_BP99),
-                spreads=dict(SPREAD_BP99),
-                fb=dict(limit_krd10y=limit_krd10y, limit_twist=limit_twist, limit_sdv01_ig=limit_sdv01_ig, limit_sdv01_hy=limit_sdv01_hy),
-                turnover=dict(penalty_bps=penalty_bps, max_turnover=max_turn)
-            )
-            st.download_button("Download preset.json", data=json.dumps(preset).encode(), file_name="preset.json", mime="application/json")
-        preset_file = st.file_uploader("Load preset.json", type=["json"], key="preset_json")
-        if preset_file:
-            p = json.loads(preset_file.read())
-            # Apply minimal set (rates/spreads) then suggest rerun for others
-            for k,v in p.get('rates', {}).items():
-                RATES_BP99[k] = v
-            for k,v in p.get('spreads', {}).items():
-                SPREAD_BP99[k] = v
-            st.info("Preset loaded. Adjust budgets/turnover as needed, then rerun.")
+    # (Removed: Presets expander and JSON save/load UI)
 
 # Prepare scenarios
 mc = simulate_mc_draws(int(n_draws), int(seed), dict(RATES_BP99), dict(SPREAD_BP99))
