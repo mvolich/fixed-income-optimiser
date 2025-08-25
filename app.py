@@ -796,6 +796,54 @@ def heatmap_funds_losses(fund_results: dict):
     fig.update_layout(height=300, margin=dict(l=10,r=10,t=40,b=20))
     return fig
 
+def build_frontier_points(df, tags, mu_dec, pnl_matrix, fund, base_params, ret_grid):
+    """
+    Compute efficient frontier by solving Min-CVaR for a grid of target returns.
+    Returns a DataFrame with columns: ['target_ret_dec','exp_ret_pct','var_pct','cvar_pct'].
+    """
+    import numpy as np
+    rows = []
+    for tr in ret_grid:
+        params = dict(base_params)  # copy
+        params["objective"] = "Min VaR for Target Return"
+        params["target_return"] = float(tr)          # mu_dec is decimal
+        params["cvar_cap"] = 1.0                     # effectively non‑binding so the solver traces the frontier
+        w_f, m_f = solve_portfolio(df, tags, mu_dec, pnl_matrix, fund, params, prev_w=None)
+        if w_f is None:
+            continue
+        rows.append({
+            "target_ret_dec": float(tr),
+            "exp_ret_pct":    float(m_f["ExpRet_pct"]),          # already in %
+            "var_pct":        float(m_f["VaR99_1M"] * 100.0),    # decimal -> %
+            "cvar_pct":       float(m_f["CVaR99_1M"] * 100.0)    # decimal -> %
+        })
+    return pd.DataFrame(rows)
+
+def efficient_frontier_chart(df_pts, current_metrics, fund_label="Fund"):
+    """
+    Plot: x = CVaR99 1M (%), y = Expected Return (ann., %).
+    Frontier shown as a line with markers; current solution as a star.
+    """
+    fig = go.Figure()
+    if (df_pts is not None) and (len(df_pts) > 0):
+        fig.add_scatter(
+            x=df_pts["cvar_pct"], y=df_pts["exp_ret_pct"],
+            mode="lines+markers", name="Efficient frontier"
+        )
+    # Current solution
+    fig.add_scatter(
+        x=[current_metrics["CVaR99_1M"] * 100.0],
+        y=[current_metrics["ExpRet_pct"]],
+        mode="markers", name=f"{fund_label} (current)",
+        marker=dict(size=12, symbol="star")
+    )
+    fig.update_layout(
+        height=360, margin=dict(l=10, r=10, t=40, b=40),
+        xaxis_title="CVaR99 1M (risk, %)",
+        yaxis_title="Expected Return (ann., %)"
+    )
+    return apply_theme(fig)
+
 # --- Prospectus cap usage helpers -------------------------------------------
 
 def calc_cap_usage(weights: np.ndarray, tags: dict, fund_caps: dict) -> dict:
@@ -1443,6 +1491,30 @@ with tab_fund:
         status = "within cap" if var99 <= cap else "over cap"
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
         st.caption(f"Roll‑down inclusion in expected return: {roll_incl_pct}%")
+
+        # --- Efficient frontier (added) ---
+        title_with_help(
+            "Efficient frontier (risk–return)",
+            "Computed by solving Min-CVaR for a grid of target returns under the current caps and budgets. "
+            "X-axis is CVaR99 1M (monthly, %). Y-axis is expected return (carry + 1Y roll, %)."
+        )
+        # Build a sensible target-return grid from the cross-section of assets
+        # mu_fund is already in decimal and includes roll-down slider adjustment
+        ret_lo = float(np.percentile(mu_fund, 20))
+        ret_hi = float(np.percentile(mu_fund, 95))
+        ret_grid = np.linspace(ret_lo, ret_hi, 20)
+
+        base_params = {
+            "factor_budgets": fb_over,
+            "turnover_penalty": penalty_bps,
+            "max_turnover": max_turn,
+            # objective + target_return set inside build_frontier_points
+            "cvar_cap": 1.0  # non-binding for tracing the full frontier
+        }
+        df_frontier = build_frontier_points(df, tags, mu_fund, pnl_matrix_assets, fund, base_params, ret_grid)
+        fig_frontier = efficient_frontier_chart(df_frontier, metrics, fund_label=fund)
+        st.plotly_chart(fig_frontier, use_container_width=True, config=plotly_default_config)
+        # --- End Efficient frontier ---
 
         # Allocation
         title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
