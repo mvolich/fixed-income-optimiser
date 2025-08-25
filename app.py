@@ -31,7 +31,7 @@ FUND_COLOR = {"GFI": RB_COLORS["blue"], "GCF": RB_COLORS["medblue"], "EYF": RB_C
 def inject_brand_css():
     st.markdown("""
     <style>
-      /* Fonts: use Ringside if you have a licensed webfont; otherwise fallback to Inter. */
+      /* Fonts: use Inter webfont; otherwise fallback to system fonts. */
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
       :root{
@@ -45,7 +45,7 @@ def inject_brand_css():
       /* App surface + global font */
       html, body, .stApp, [class*="css"] {
         background-color: #f8f9fa;
-        font-family: "Ringside", Inter, "Segoe UI", Roboto, Arial, sans-serif !important;
+        font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif !important;
         color: #0b0c0c;
       }
 
@@ -159,27 +159,27 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-  /* Import a font family named 'Ringside' (fallbacks will apply if unavailable) */
-  @import url('https://fonts.googleapis.com/css2?family=Ringside:wght@300;400;500;600;700&display=swap');
+  /* Import a font family named 'Inter' (fallbacks will apply if unavailable) */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
   /* Force the font everywhere */
-  * { font-family: 'Ringside', sans-serif !important; }
-  .stApp { font-family: 'Ringside', sans-serif !important; }
+  * { font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif !important; }
+  .stApp { font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif !important; }
 
   /* Common widget surfaces also use it explicitly */
   .stMarkdown, .stDataFrame, .stSelectbox, .stMultiSelect, .stTextInput,
   .stNumberInput, .stSlider, .stButton, .stDownloadButton {
-    font-family: 'Ringside', sans-serif !important;
+    font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif !important;
   }
 
   /* Tabs */
   .stTabs [data-baseweb="tab-list"] { gap: 12px; }
   .stTabs [data-baseweb="tab"] {
-    font-family: 'Ringside', sans-serif !important;
+    font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif !important;
   }
 
   /* Headings */
-  h1, h2, h3, h4, h5, h6 { font-family: 'Ringside', sans-serif !important; }
+  h1, h2, h3, h4, h5, h6 { font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -263,85 +263,21 @@ META_SYNONYMS = {
 }
 
 def _to_bool(s):
-    """Coerce typical TRUE/FALSE/Yes/No/1/0 strings to bool; leave NaN -> False."""
-    return pd.Series(s).astype(str).str.strip().str.lower().map(
-        {"true": True, "t": True, "1": True, "yes": True, "y": True, "false": False, "f": False, "0": False, "no": False, "n": False}
-    ).fillna(False).astype(bool)
-
-
-
-    # Normalise Bloomberg_Ticker and Name in both frames
-    df_norm = df.copy()
-    meta_norm = meta.copy()
-    
-    # Normalise Bloomberg_Ticker
-    if 'Bloomberg_Ticker' in df_norm.columns:
-        df_norm['Bloomberg_Ticker_norm'] = df_norm['Bloomberg_Ticker'].astype(str).str.strip().str.upper()
-    if 'Bloomberg_Ticker' in meta_norm.columns:
-        meta_norm['Bloomberg_Ticker_norm'] = meta_norm['Bloomberg_Ticker'].astype(str).str.strip().str.upper()
-    
-    # Normalise Name
-    if 'Name' in df_norm.columns:
-        df_norm['Name_norm'] = df_norm['Name'].astype(str).str.strip().str.upper()
-    if 'Name' in meta_norm.columns:
-        meta_norm['Name_norm'] = meta_norm['Name'].astype(str).str.strip().str.upper()
-    
-    # Select join key: prefer Bloomberg_Ticker if present in both, else use Name
-    if ('Bloomberg_Ticker_norm' in df_norm.columns and 
-        'Bloomberg_Ticker_norm' in meta_norm.columns):
-        join_key = 'Bloomberg_Ticker_norm'
-        join_col = 'Bloomberg_Ticker'
-    elif ('Name_norm' in df_norm.columns and 
-          'Name_norm' in meta_norm.columns):
-        join_key = 'Name_norm'
-        join_col = 'Name'
-    else:
-        # No valid join key found
-        return df, list(df.index)
-    
-    # Select metadata columns to merge
-    meta_cols = ['Bloomberg_Ticker', 'Name', 'Credit_Quality', 'Is_AT1', 'Is_EM', 'Is_Non_IG', 'Is_Hybrid', 'Is_TBill']
-    available_meta_cols = [col for col in meta_cols if col in meta_norm.columns]
-    
-    if not available_meta_cols:
-        return df, list(df.index)
-    
-    # Merge metadata
-    merged = df_norm.merge(
-        meta_norm[available_meta_cols + [join_key]], 
-        on=join_key, 
-        how='left', 
-        suffixes=('', '_meta')
-    )
-    
-    # Overwrite existing columns with metadata versions
-    take = ['Credit_Quality', 'Is_AT1', 'Is_EM', 'Is_Non_IG', 'Is_Hybrid', 'Is_TBill']
-    for col in take:
-        if col in merged.columns and f'{col}_meta' in merged.columns:
-            merged[col] = merged[f'{col}_meta'].combine_first(merged[col])
-            merged = merged.drop(columns=[f'{col}_meta'])
-    
-    # Coerce boolean columns
-    for col in ['Is_AT1', 'Is_EM', 'Is_Non_IG', 'Is_Hybrid', 'Is_TBill']:
-        if col in merged.columns:
-            merged[col] = _to_bool(merged[col])
-    
-    # Clean up temporary columns
-    merged = merged.drop(columns=[col for col in merged.columns if col.endswith('_norm')])
-    
-    # Identify records without metadata
-    missing_meta = merged[merged[available_meta_cols].isna().all(axis=1)]
-    missing_tickers = []
-    
-    if 'Bloomberg_Ticker' in merged.columns:
-        missing_tickers = missing_meta['Bloomberg_Ticker'].dropna().tolist()
-    elif 'Name' in merged.columns:
-        missing_tickers = missing_meta['Name'].dropna().tolist()
-    
-    # Add metadata missing flag
-    merged['_meta_missing'] = merged[available_meta_cols].isna().all(axis=1)
-    
-    return merged, missing_tickers
+    """Robustly coerce typical TRUE/FALSE/Yes/No/1/0 (incl. floats) to bool; NaN -> False."""
+    s = pd.Series(s)
+    # try numeric first
+    sn = pd.to_numeric(s, errors="coerce")
+    out = pd.Series(False, index=s.index)
+    num_mask = ~sn.isna()
+    out[num_mask] = sn[num_mask] != 0
+    # fall back to strings
+    str_map = {
+        "true": True, "t": True, "1": True, "yes": True, "y": True,
+        "false": False, "f": False, "0": False, "no": False, "n": False
+    }
+    str_mask = ~num_mask
+    out[str_mask] = s[str_mask].astype(str).str.strip().str.lower().map(str_map).fillna(False)
+    return out.astype(bool)
 
 def _rename_with_synonyms(df, required, synonyms):
     low = {c.lower().strip(): c for c in df.columns}
@@ -363,9 +299,50 @@ def _rename_with_synonyms(df, required, synonyms):
             raise ValueError(f"Missing required column(s): {', '.join(missing)}")
     return df
 
+def merge_meta_robust(df_main: pd.DataFrame, df_meta: pd.DataFrame) -> pd.DataFrame:
+    a = df_main.copy()
+    b = df_meta.copy()
+
+    # normalise join keys
+    for col in ["Bloomberg_Ticker", "Name"]:
+        if col in a.columns: a[col + "_norm"] = a[col].astype(str).str.strip().str.upper()
+        if col in b.columns: b[col + "_norm"] = b[col].astype(str).str.strip().str.upper()
+
+    # primary merge on ticker (normalized) when available
+    if "Bloomberg_Ticker_norm" in a.columns and "Bloomberg_Ticker_norm" in b.columns:
+        a = a.merge(
+            b.drop_duplicates(subset=["Bloomberg_Ticker_norm"]),
+            on="Bloomberg_Ticker_norm", how="left", suffixes=("", "_meta")
+        )
+    else:
+        a = a.merge(b, on="Bloomberg_Ticker", how="left", suffixes=("", "_meta"))
+
+    # if key classification flags still all missing, try a second pass on Name
+    cls = ["Is_AT1", "Is_EM", "Is_Non_IG", "Is_Hybrid", "Is_T2", "Is_Cash"]
+    have_all_cls = all(c in a.columns for c in cls)
+    missing = a[cls].isna().all(axis=1) if have_all_cls else pd.Series(True, index=a.index)
+
+    if missing.any() and "Name_norm" in a.columns and "Name_norm" in b.columns:
+        m2 = (a.loc[missing, ["Name_norm"]]
+                .merge(b.drop_duplicates(subset=["Name_norm"]),
+                       on="Name_norm", how="left", suffixes=("", "_byname")))
+        for c in cls + ["Credit_Quality"]:
+            src = c + "_byname"
+            if c in a.columns and src in m2.columns:
+                a.loc[missing, c] = a.loc[missing, c].combine_first(m2[src])
+
+    # cleanup temp columns
+    drop_cols = [c for c in a.columns if c.endswith("_norm")]
+    return a.drop(columns=drop_cols, errors="ignore")
+
 # -----------------------------
 # 1) Data ingest & classification
 # -----------------------------
+
+def _arr_digest(a: np.ndarray):
+    a = np.asarray(a)
+    return (a.shape, float(np.nanmean(a)), float(np.nanstd(a)),
+            float(np.nanmin(a)), float(np.nanmax(a)))
 
 @st.cache_data(show_spinner=False)
 def load_joined_input(uploaded_file_bytes: bytes, path: str = None) -> pd.DataFrame:
@@ -387,20 +364,22 @@ def load_joined_input(uploaded_file_bytes: bytes, path: str = None) -> pd.DataFr
         if c in df_main.columns:
             df_main[c] = pd.to_numeric(df_main[c], errors="coerce").fillna(0.0)
 
-    # Merge on Bloomberg_Ticker
-    df = df_main.merge(df_meta, on="Bloomberg_Ticker", how="left", suffixes=("", "_meta"))
+    # Use robust merge
+    df = merge_meta_robust(df_main, df_meta)
 
     # Build expected return (carry + roll)
     df["ExpRet_pct"] = df.get("Yield_Hedged_Pct", 0.0) + df.get("Roll_Down_bps_1Y", 0.0)
 
-    # Include filter
+    # Include filter with robust boolean parsing
     if "Include" in df.columns:
-        df = df[df["Include"] == True].copy()
+        df = df[_to_bool(df["Include"])].copy()
 
     # Ensure boolean flags exist (fallback inference if MetaData omitted some)
     def _bool(col, fallback=None):
-        if col in df.columns: return df[col].fillna(False).astype(bool)
-        if fallback is not None: return fallback
+        if col in df.columns:
+            return _to_bool(df[col])
+        if fallback is not None:
+            return pd.Series(fallback, index=df.index).fillna(False).astype(bool)
         return pd.Series(False, index=df.index)
 
     is_at1    = _bool("Is_AT1",    df["Instrument_Type"].str.upper().str.contains("AT1", na=False))
@@ -547,7 +526,9 @@ def solve_portfolio(df: pd.DataFrame,
         st.warning("cvxpy is not installed in this environment. Showing equal-weight placeholder.")
         n = len(df)
         w = np.ones(n) / n
-        return w, {"status": "NO_CVXPY", "message": CVXPY_ERROR}
+        metrics = _compute_metrics_from_w(df, mu, pnl_matrix, w)
+        metrics.update({"status": "NO_CVXPY", "message": CVXPY_ERROR})
+        return w, metrics
 
     n = len(df)
     w = cp.Variable(n, nonneg=True)
@@ -611,8 +592,8 @@ def solve_portfolio(df: pd.DataFrame,
     if objective_name == "Max Return":
         obj = cp.Maximize(mu @ w - turnover_penalty * cp.norm1(w - prev_w) - ridge * cp.sum_squares(w))
     elif objective_name == "Max Sharpe":
-        # No full covariance here; proxy with small penalty as variance placeholder
-        obj = cp.Maximize(mu @ w - 10 * cvar - turnover_penalty * cp.norm1(w - prev_w) - ridge * cp.sum_squares(w))
+        # Handled externally via frontier tangency in run_fund(); fall back to Max Return if ever called.
+        obj = cp.Maximize(mu @ w - turnover_penalty * cp.norm1(w - prev_w) - ridge * cp.sum_squares(w))
     elif objective_name == "Min VaR for Target Return":
         target_ret = params.get("target_return", float(np.percentile(mu, 60)))
         constraints += [mu @ w >= target_ret]
@@ -623,12 +604,13 @@ def solve_portfolio(df: pd.DataFrame,
         obj = cp.Minimize(cvar + turnover_penalty * cp.norm1(w - prev_w) + ridge * cp.sum_squares(w))
 
     prob = cp.Problem(obj, constraints)
-    # Solver fallback chain for robustness
+    # Solver preference: ECOS (conic LP/QP) → OSQP (QP) → SCS as last resort
     solve_errors = []
     for solver, kwargs in [
-        (cp.OSQP, {"verbose": False, "max_iter": 30000, "eps_abs": 1e-5, "eps_rel": 1e-5, "warm_start": True}),
-        (cp.SCS,  {"verbose": False, "max_iters": 20000}),
         (cp.ECOS, {"verbose": False, "max_iters": 100000}),
+        (cp.OSQP, {"verbose": False, "max_iter": 30000, "eps_abs": 1e-5, "eps_rel": 1e-5, "warm_start": True}),
+        # Leave SCS only as a final fallback; comment it out entirely if you want to avoid it:
+        #(cp.SCS,  {"verbose": False, "max_iters": 20000}),
     ]:
         try:
             prob.solve(solver=solver, **kwargs)
@@ -819,7 +801,8 @@ def _compute_metrics_from_w(df, mu, pnl_matrix, w):
 
 @st.cache_data(show_spinner=False, ttl=120)
 def build_frontier_points(df, tags, mu, pnl_matrix, fund, factor_budgets, cvar_cap,
-                          fund_caps=None, er_star_dec=None, n=FRONTIER_N, pad=0.0025):
+                          fund_caps=None, er_star_dec=None, n=FRONTIER_N, pad=0.0025,
+                          _mu_key=None, _pnl_key=None):
     """
     Build a Min‑CVaR frontier across a grid of target returns.
     The grid expands to include the current portfolio's return (er_star_dec).
@@ -957,85 +940,23 @@ def cap_usage_chart(usage: dict) -> go.Figure:
 # --- Prospectus cap usage visuals -------------------------------------------
 
 def render_cap_usage(df, tags, weights, fund):
-    caps = FUND_CONSTRAINTS.get(fund, {})
-    used = {
-        "Non‑IG": float(tags["is_non_ig"].astype(float) @ weights),
-        "EM":     float(tags["is_em"].astype(float)     @ weights),
-        "Hybrid": float(tags["is_hybrid"].astype(float) @ weights),
-        "AT1":    float(tags["is_at1"].astype(float)    @ weights),
-        "Cash":   float(tags["is_tbill"].astype(float)  @ weights),
-    }
-    
-    # Build a small table and a horizontal bar viz (used vs cap)
-    rows = []
-    for k, u in used.items():
-        cap = caps.get(f"max_{k.lower()}", None)  # keys: max_non_ig, max_em, max_hybrid, max_at1, max_cash
-        if cap is None: 
-            continue
-        rows.append({"Cap": k, "Used_pct": u*100, "Cap_pct": cap*100, "Headroom_pct": (cap-u)*100})
-    
-    tbl = pd.DataFrame(rows)
-    if len(tbl) == 0:
+    fund_caps = FUND_CONSTRAINTS.get(fund, {})
+    usage = calc_cap_usage(weights, tags, fund_caps)
+    if not usage:
         return
 
-
-
-    # Create a chart that mirrors the Factor Exposures vs Budgets style
-    fig = go.Figure()
-    
-    # Add background bars (caps) in grey - similar to budget bars in the reference chart
-    for _, r in tbl.iterrows():
-        if r["Cap_pct"] > 0:
-            fig.add_bar(
-                y=[r["Cap"]], 
-                x=[r["Cap_pct"]], 
-                orientation="h",
-                name="Cap", 
-                marker_color=RB_COLORS["grey"],  # Grey background like the reference chart
-                hovertemplate="<b>%{y}</b><br>Cap: %{x:.1f}%<extra></extra>",
-                showlegend=False,
-                opacity=0.7
-            )
-    
-    # Add foreground bars (used) in dark blue - similar to exposure bars in the reference chart
-    for _, r in tbl.iterrows():
-        if r["Used_pct"] > 0:
-            fig.add_bar(
-                y=[r["Cap"]], 
-                x=[r["Used_pct"]], 
-                orientation="h",
-                name="Used", 
-                marker_color=RB_COLORS["medblue"],  # Dark blue like the reference chart
-                hovertemplate="<b>%{y}</b><br>Used: %{x:.1f}%<extra></extra>",
-                showlegend=False
-            )
-    
-    # Update layout to match the reference chart style
-    fig.update_layout(
-        title=dict(
-            text="Prospectus Cap Usage",
-            x=0.0,  # Left justify the title
-            xanchor="left"
-        ),
-        barmode="overlay",  # Overlay mode like the reference chart
-        height=280,  # Slightly taller to match reference proportions
-        margin=dict(l=10, r=10, t=50, b=40),  # More bottom margin for x-axis labels
-        xaxis_title="% of NAV",
-        yaxis_title="",
-        showlegend=False,
-        xaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(128,128,128,0.2)",
-            zeroline=True,
-            zerolinecolor="rgba(128,128,128,0.4)"
-        ),
-        yaxis=dict(
-            showgrid=False,
-            zeroline=False
-        )
-    )
-    
-    st.plotly_chart(fig, use_container_width=True, config=plotly_default_config)
+    # small table view
+    rows = []
+    for v in usage.values():
+        rows.append({
+            "Cap": v["label"],
+            "Used_pct": v["used"] * 100,
+            "Cap_pct": v["cap"] * 100,
+            "Headroom_pct": (v["cap"] - v["used"]) * 100
+        })
+    tbl = pd.DataFrame(rows).sort_values("Cap")
+    st.plotly_chart(cap_usage_chart(usage), use_container_width=True, config=plotly_default_config)
+    st.dataframe(tbl, use_container_width=True, height=220)
 
 def cap_usage_gauge(label: str, used_w: float, cap_w: float) -> go.Figure:
     """
@@ -1365,10 +1286,12 @@ def run_fund(
     w_tmp, _ = solve_portfolio(df, tags, mu_local, pnl_matrix_assets, fund, params_tmp, prev_w)
     er_star_dec = float(mu_local @ w_tmp) if w_tmp is not None else None
 
+    mu_key  = _arr_digest(mu_local)
+    pnl_key = _arr_digest(pnl_matrix_assets)
     df_pts, w_list = build_frontier_points(
         df, tags, mu_local, pnl_matrix_assets, fund, fb_local, cvar_cap_eff,
-        fund_caps=fc_local,                          # <-- NEW
-        er_star_dec=er_star_dec, n=(frontier_n if frontier_n is not None else FRONTIER_N)
+        fund_caps=fc_local, er_star_dec=er_star_dec, n=(frontier_n if frontier_n is not None else FRONTIER_N),
+        _mu_key=mu_key, _pnl_key=pnl_key
     )
     if df_pts.empty:
         return w_tmp, {"status": "OK", "ExpRet_pct": (er_star_dec or 0.0) * 100,
@@ -1445,7 +1368,7 @@ with tab_overview:
 
                 cap = VAR99_CAP[f]
                 status = "within cap" if m["VaR99_1M"] <= cap else "over cap"
-                st.caption(f"VaR cap {cap*100:.2f}% — {status}")
+                st.caption(f"Reference VaR cap {cap*100:.2f}% — {status}")
             idx += 1
 
     spacer(1)
@@ -1602,10 +1525,12 @@ with tab_fund:
         # Compute the same CVaR cap used inside run_fund
         cvar_cap_eff = (var_cap if var_cap is not None else VAR99_CAP[fund]) * 1.15
         er_star_dec = metrics["ExpRet_pct"] / 100.0
+        mu_key  = _arr_digest(mu_fund)
+        pnl_key = _arr_digest(pnl_matrix_assets)
         df_pts, _ = build_frontier_points(
             df, tags, mu_fund, pnl_matrix_assets, fund, fb_over, cvar_cap_eff,
-            fund_caps=fc_over,                  # <-- NEW
-            er_star_dec=er_star_dec, n=int(frontier_n)
+            fund_caps=fc_over, er_star_dec=er_star_dec, n=int(frontier_n),
+            _mu_key=mu_key, _pnl_key=pnl_key
         )
         fig = go.Figure()
         if not df_pts.empty:
