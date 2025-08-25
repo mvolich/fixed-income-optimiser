@@ -1307,44 +1307,81 @@ mu_percent = df["ExpRet_pct"].values.astype(float)
 mu = mu_percent / 100.0
 
 # Helper: run optimisation for a single fund
-def run_fund(fund: str, objective: str, var_cap_override: float | None = None, prev_w=None, mu_override=None):
-    fb = {"limit_krd10y": limit_krd10y, "limit_twist": limit_twist,
-          "limit_sdv01_ig": limit_sdv01_ig, "limit_sdv01_hy": limit_sdv01_hy}
-    cvar_cap = (var_cap_override if var_cap_override is not None else VAR99_CAP[fund] * 1.15)
-    # Use the override μ if provided; else the global μ
+def run_fund(
+    fund: str,
+    objective: str,
+    var_cap_override: float | None = None,
+    prev_w=None,
+    mu_override=None,
+    fb_override: dict | None = None,
+    frontier_n: int | None = None,
+):
+    # Use Fund-tab budgets if provided; else fall back to sidebar defaults
+    fb_local = fb_override or {
+        "limit_krd10y": limit_krd10y,
+        "limit_twist":  limit_twist,
+        "limit_sdv01_ig": limit_sdv01_ig,
+        "limit_sdv01_hy": limit_sdv01_hy,
+    }
     mu_local = mu_override if mu_override is not None else mu
 
+    # Use the same CVaR cap for star and frontier: VaR slider × 1.15 cushion (as used in Fund Detail plotting)
+    cvar_cap_eff = ((var_cap_override if var_cap_override is not None else VAR99_CAP[fund]) * 1.15)
+
     if objective != "Max Sharpe":
-        params = {"factor_budgets": fb, "turnover_penalty": penalty_bps, "max_turnover": max_turn,
-                  "objective": objective, "cvar_cap": cvar_cap}
+        params = {
+            "factor_budgets": fb_local,
+            "turnover_penalty": penalty_bps,
+            "max_turnover": max_turn,
+            "objective": objective,
+            "cvar_cap": cvar_cap_eff,
+        }
         w, metrics = solve_portfolio(df, tags, mu_local, pnl_matrix_assets, fund, params, prev_w)
         if w is None:
             return None, metrics, None
         return w, metrics, pnl_matrix_assets @ w
 
-    # --- Max Sharpe: pick tangency point on THIS μ (frontier) ---
-    params_tmp = {"factor_budgets": fb, "turnover_penalty": penalty_bps, "max_turnover": max_turn,
-                  "objective": "Max Return", "cvar_cap": cvar_cap}
-    w_tmp, m_tmp = solve_portfolio(df, tags, mu_local, pnl_matrix_assets, fund, params_tmp, prev_w)
+    # --- Max Sharpe: pick tangency ON the plotted frontier ---
+    # Provisional 'max return' to widen the grid around the likely star
+    params_tmp = {
+        "factor_budgets": fb_local,
+        "turnover_penalty": penalty_bps,
+        "max_turnover": max_turn,
+        "objective": "Max Return",
+        "cvar_cap": cvar_cap_eff,
+    }
+    w_tmp, _ = solve_portfolio(df, tags, mu_local, pnl_matrix_assets, fund, params_tmp, prev_w)
     er_star_dec = float(mu_local @ w_tmp) if w_tmp is not None else None
 
-    df_pts, w_list = build_frontier_points(df, tags, mu_local, pnl_matrix_assets, fund, fb, cvar_cap,
-                                           er_star_dec=er_star_dec, n=FRONTIER_N)
+    df_pts, w_list = build_frontier_points(
+        df, tags, mu_local, pnl_matrix_assets, fund, fb_local, cvar_cap_eff,
+        er_star_dec=er_star_dec, n=(frontier_n if frontier_n is not None else FRONTIER_N)
+    )
     if df_pts.empty:
-        return w_tmp, (m_tmp or {}), (pnl_matrix_assets @ w_tmp if w_tmp is not None else None)
+        return w_tmp, {"status": "OK", "ExpRet_pct": (er_star_dec or 0.0) * 100,
+                       "VaR99_1M": 0.0, "CVaR99_1M": 0.0, "Yield_pct": 0.0, "OAD_years": 0.0}, \
+               (pnl_matrix_assets @ w_tmp if w_tmp is not None else None)
 
+    # Maximise (monthly ER) / (monthly CVaR) along THIS frontier
     er_m   = (df_pts["er_pct"].to_numpy() / 100.0) / 12.0
     cvar_m = (df_pts["cvar_pct"].to_numpy() / 100.0)
     idx = int(np.argmax(er_m / np.maximum(cvar_m, 1e-8)))
     w = w_list[idx]
 
+    # Recompute metrics for the chosen weights
     port_pnl = pnl_matrix_assets @ w
     var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
     er_dec = float(mu_local @ w)
-    metrics = {"status": "OPTIMAL", "obj": er_dec - cvar99, "ExpRet_pct": er_dec * 100.0,
-               "Yield_pct": float(df["Yield_Hedged_Pct"].values @ w),
-               "OAD_years": float(df["OAD_Years"].values @ w),
-               "VaR99_1M": var99, "CVaR99_1M": cvar99, "weights": w}
+    metrics = {
+        "status": "OPTIMAL",
+        "obj": er_dec - cvar99,
+        "ExpRet_pct": er_dec * 100.0,
+        "Yield_pct": float(df["Yield_Hedged_Pct"].values @ w),
+        "OAD_years": float(df["OAD_Years"].values @ w),
+        "VaR99_1M": var99,
+        "CVaR99_1M": cvar99,
+        "weights": w,
+    }
     return w, metrics, port_pnl
 
 
@@ -1485,6 +1522,8 @@ with tab_fund:
         )
         roll_share = roll_incl_pct / 100.0
         
+        frontier_n = st.number_input("Frontier grid points", min_value=5, max_value=50, value=12, step=1)
+        
         st.write("Prospectus caps:")
         fc = FUND_CONSTRAINTS[fund]
         # Show & allow temporary overrides
@@ -1517,7 +1556,12 @@ with tab_fund:
         mu_fund = mu_fund_percent / 100.0  # convert pp -> decimal for optimiser
         
         w, metrics, port_pnl = run_fund(
-            fund, objective, var_cap_override=var_cap, prev_w=prev_w_vec, mu_override=mu_fund
+            fund, objective,
+            var_cap_override=var_cap,
+            prev_w=prev_w_vec,
+            mu_override=mu_fund,
+            fb_override=fb_over,
+            frontier_n=int(frontier_n),
         )
         # Restore constraints regardless of outcome
         FUND_CONSTRAINTS[fund] = _fc_backup
@@ -1547,9 +1591,13 @@ with tab_fund:
 
         title_with_help("Efficient frontier (risk–return)",
                         "Line: Min‑CVaR frontier; Star: current portfolio (tangency for Max Sharpe).")
+        # Compute the same CVaR cap used inside run_fund
+        cvar_cap_eff = (var_cap if var_cap is not None else VAR99_CAP[fund]) * 1.15
         er_star_dec = metrics["ExpRet_pct"] / 100.0
-        df_pts, _ = build_frontier_points(df, tags, mu_fund, pnl_matrix_assets, fund, fb_over, var_cap * 1.15,
-                                          er_star_dec=er_star_dec, n=FRONTIER_N)
+        df_pts, _ = build_frontier_points(
+            df, tags, mu_fund, pnl_matrix_assets, fund, fb_over, cvar_cap_eff,
+            er_star_dec=er_star_dec, n=int(frontier_n)
+        )
         fig = go.Figure()
         if not df_pts.empty:
             fig.add_scatter(x=df_pts["cvar_pct"], y=df_pts["er_pct"], mode="lines+markers", name="Efficient frontier")
