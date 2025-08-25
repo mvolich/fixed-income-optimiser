@@ -559,7 +559,8 @@ def solve_portfolio(df: pd.DataFrame,
     is_at1    = tags["is_at1"].astype(float)
     is_tbill  = tags["is_tbill"].astype(float)
 
-    fc = FUND_CONSTRAINTS[fund].copy()
+    # Use caps passed in params when provided; otherwise fall back to global defaults
+    fc = params.get("fund_caps", FUND_CONSTRAINTS[fund]).copy()
     # Hard caps (only if key exists)
     if "max_non_ig" in fc: constraints += [is_non_ig @ w <= fc["max_non_ig"]]
     if "max_em"     in fc: constraints += [is_em     @ w <= fc["max_em"]]
@@ -817,7 +818,7 @@ def _compute_metrics_from_w(df, mu, pnl_matrix, w):
 
 @st.cache_data(show_spinner=False, ttl=120)
 def build_frontier_points(df, tags, mu, pnl_matrix, fund, factor_budgets, cvar_cap,
-                          er_star_dec=None, n=FRONTIER_N, pad=0.0025):
+                          fund_caps=None, er_star_dec=None, n=FRONTIER_N, pad=0.0025):
     """
     Build a Min‑CVaR frontier across a grid of target returns.
     The grid expands to include the current portfolio's return (er_star_dec).
@@ -835,6 +836,7 @@ def build_frontier_points(df, tags, mu, pnl_matrix, fund, factor_budgets, cvar_c
     for t in targets:
         params_f = {
             "factor_budgets": factor_budgets,
+            "fund_caps": fund_caps,                 # <-- NEW
             "turnover_penalty": 0.0,          # frontier shouldn't penalise turnover
             "max_turnover": 1.0,
             "objective": "Min VaR for Target Return",
@@ -1314,6 +1316,7 @@ def run_fund(
     prev_w=None,
     mu_override=None,
     fb_override: dict | None = None,
+    fc_override: dict | None = None,
     frontier_n: int | None = None,
 ):
     # Use Fund-tab budgets if provided; else fall back to sidebar defaults
@@ -1323,6 +1326,7 @@ def run_fund(
         "limit_sdv01_ig": limit_sdv01_ig,
         "limit_sdv01_hy": limit_sdv01_hy,
     }
+    fc_local = fc_override or FUND_CONSTRAINTS[fund]
     mu_local = mu_override if mu_override is not None else mu
 
     # Use the same CVaR cap for star and frontier: VaR slider × 1.15 cushion (as used in Fund Detail plotting)
@@ -1331,6 +1335,7 @@ def run_fund(
     if objective != "Max Sharpe":
         params = {
             "factor_budgets": fb_local,
+            "fund_caps": fc_local,                     # <-- NEW
             "turnover_penalty": penalty_bps,
             "max_turnover": max_turn,
             "objective": objective,
@@ -1345,6 +1350,7 @@ def run_fund(
     # Provisional 'max return' to widen the grid around the likely star
     params_tmp = {
         "factor_budgets": fb_local,
+        "fund_caps": fc_local,                 # <-- NEW
         "turnover_penalty": penalty_bps,
         "max_turnover": max_turn,
         "objective": "Max Return",
@@ -1355,6 +1361,7 @@ def run_fund(
 
     df_pts, w_list = build_frontier_points(
         df, tags, mu_local, pnl_matrix_assets, fund, fb_local, cvar_cap_eff,
+        fund_caps=fc_local,                          # <-- NEW
         er_star_dec=er_star_dec, n=(frontier_n if frontier_n is not None else FRONTIER_N)
     )
     if df_pts.empty:
@@ -1533,15 +1540,6 @@ with tab_fund:
         max_cash   = st.slider("Max Cash weight",   0.0, 1.0, float(fc.get("max_cash",1.0)),   0.01, help="US T‑Bills sleeve; caps cash balance.")
         max_at1    = st.slider("Max AT1 weight",    0.0, 1.0, float(fc.get("max_at1",1.0)),    0.01, help="Bank Additional Tier‑1 sleeve (per prospectus restrictions).")
 
-        # Build a temporary override dict (used only in this tab run). Backup and restore afterwards
-        _fc_backup = {k:v for k,v in FUND_CONSTRAINTS[fund].items()}
-        try:
-            FUND_CONSTRAINTS[fund] = {"max_non_ig": max_non_ig, "max_em": max_em, "max_cash": max_cash, "max_at1": max_at1}
-            if "max_hybrid" in fc:
-                FUND_CONSTRAINTS[fund]["max_hybrid"] = max_hybrid
-        finally:
-            pass
-
         st.write("Factor budgets (yrs):")
         lk = st.number_input("|KRD 10y| cap", value=limit_krd10y, step=0.05, format="%.2f", help="Limit to 10y interest‑rate exposure (in duration years) for the portfolio.")
         lt = st.number_input("Twist (30y–2y) cap", value=limit_twist, step=0.05, format="%.2f", help="Twist exposure: how much steepener/flattening risk is allowed.")
@@ -1555,16 +1553,19 @@ with tab_fund:
         mu_fund_percent = df["Yield_Hedged_Pct"].values + df["Roll_Down_bps_1Y"].values * roll_share
         mu_fund = mu_fund_percent / 100.0  # convert pp -> decimal for optimiser
         
+        fc_over = {"max_non_ig": max_non_ig, "max_em": max_em, "max_cash": max_cash, "max_at1": max_at1}
+        if "max_hybrid" in FUND_CONSTRAINTS[fund]:
+            fc_over["max_hybrid"] = max_hybrid
+
         w, metrics, port_pnl = run_fund(
             fund, objective,
             var_cap_override=var_cap,
             prev_w=prev_w_vec,
             mu_override=mu_fund,
             fb_override=fb_over,
+            fc_override=fc_over,               # <-- NEW
             frontier_n=int(frontier_n),
         )
-        # Restore constraints regardless of outcome
-        FUND_CONSTRAINTS[fund] = _fc_backup
         if w is None:
             st.error(f"Optimisation failed: {metrics.get('status','')} – {metrics.get('message','')}")
             st.stop()
@@ -1596,6 +1597,7 @@ with tab_fund:
         er_star_dec = metrics["ExpRet_pct"] / 100.0
         df_pts, _ = build_frontier_points(
             df, tags, mu_fund, pnl_matrix_assets, fund, fb_over, cvar_cap_eff,
+            fund_caps=fc_over,                  # <-- NEW
             er_star_dec=er_star_dec, n=int(frontier_n)
         )
         fig = go.Figure()
