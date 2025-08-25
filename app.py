@@ -1268,7 +1268,7 @@ with tab_overview:
     st.subheader("Compare Funds: positioning & risk")
     objective = st.selectbox(
         "Objective",
-        ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"],
+        ["Max Sharpe", "Min VaR for Target Return", "Max Drawdown Proxy", "Max Return"],
         index=0, key="overview_obj",
         help=("Choose the optimiser target. Max Return ignores risk beyond hard caps; "
               "Max Sharpe penalises CVaR; Min VaR meets a target return; Drawdown proxy minimises CVaR. ") +
@@ -1382,8 +1382,21 @@ with tab_fund:
     c0, c1 = st.columns([1,2])
     with c0:
         fund = st.selectbox("Fund", ["GFI","GCF","EYF"], index=0, help="Choose which fund’s caps and budgets to tune and optimise.")
-        objective = st.selectbox("Objective", ["Max Return","Max Sharpe","Min VaR for Target Return","Max Drawdown Proxy"], index=0, help="Select the optimiser target for this fund only.")
+        objective = st.selectbox(
+            "Objective",
+            ["Max Sharpe", "Min VaR for Target Return", "Max Drawdown Proxy", "Max Return"],
+            index=0,
+            help="Select the optimiser target for this fund only."
+        )
         var_cap = st.slider(f"{fund} monthly VaR99 cap (%)", 0.0, 15.0, float(VAR99_CAP[fund]*100), 0.1) / 100.0
+        
+        roll_incl_pct = st.slider(
+            "Include roll‑down return (%)",
+            0, 100, 100, 5,
+            help="Scales the 1‑year roll‑down component used in expected return. 0% ignores roll‑down; 100% includes it fully."
+        )
+        roll_share = roll_incl_pct / 100.0
+        
         st.write("Prospectus caps:")
         fc = FUND_CONSTRAINTS[fund]
         # Show & allow temporary overrides
@@ -1411,6 +1424,10 @@ with tab_fund:
         fb_over = {"limit_krd10y": lk, "limit_twist": lt, "limit_sdv01_ig": lig, "limit_sdv01_hy": lhy}
 
     with c1:
+        # Build expected-return vector for Fund Detail with user-selected roll-down inclusion
+        mu_fund_percent = df["Yield_Hedged_Pct"].values + df["Roll_Down_bps_1Y"].values * roll_share
+        mu_fund = mu_fund_percent / 100.0  # convert pp -> decimal for optimiser
+        
         # Run optimisation for the chosen fund with overrides
         params = {
             "factor_budgets": fb_over,
@@ -1420,7 +1437,9 @@ with tab_fund:
             "cvar_cap": var_cap * 1.15,  # CVaR cap above VaR target
         }
         w, metrics = None, None
-        w, metrics = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params, prev_w=prev_w_vec)
+        
+        # Run optimisation for the chosen fund with overrides, using mu_fund
+        w, metrics = solve_portfolio(df, tags, mu_fund, pnl_matrix_assets, fund, params, prev_w=prev_w_vec)
         # Restore constraints regardless of outcome
         FUND_CONSTRAINTS[fund] = _fc_backup
         if w is None:
@@ -1446,6 +1465,7 @@ with tab_fund:
         cap = var_cap
         status = "within cap" if var99 <= cap else "over cap"
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
+        st.caption(f"Roll‑down inclusion in expected return: {roll_incl_pct}%")
 
         # Allocation
         title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
@@ -1464,7 +1484,7 @@ with tab_fund:
 
         # Contributions table
         title_with_help("Segment contributions table", "Weights, expected return contribution (%), yield & roll‑down, and duration metrics per segment.")
-        contr = contributions_table(df, w, mu)
+        contr = contributions_table(df, w, mu_fund)
         st.dataframe(contr, use_container_width=True, height=360)
 
         # Download
