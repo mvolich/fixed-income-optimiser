@@ -836,7 +836,7 @@ def build_frontier_points(df, tags, mu, pnl_matrix, fund, factor_budgets, cvar_c
     for t in targets:
         params_f = {
             "factor_budgets": factor_budgets,
-            "fund_caps": fund_caps,                 # <-- NEW
+            "fund_caps": fund_caps if fund_caps is not None else FUND_CONSTRAINTS[fund],
             "turnover_penalty": 0.0,          # frontier shouldn't penalise turnover
             "max_turnover": 1.0,
             "objective": "Min VaR for Target Return",
@@ -1529,7 +1529,8 @@ with tab_fund:
         )
         roll_share = roll_incl_pct / 100.0
         
-        frontier_n = st.number_input("Frontier grid points", min_value=5, max_value=50, value=12, step=1)
+        # No artificial upper limit; you control performance. Start at 12.
+        frontier_n = st.number_input("Frontier grid points", min_value=5, value=12, step=1)
         
         st.write("Prospectus caps:")
         fc = FUND_CONSTRAINTS[fund]
