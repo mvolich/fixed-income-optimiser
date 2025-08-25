@@ -211,7 +211,8 @@ FACTOR_BUDGETS_DEFAULT = {
 
 TURNOVER_DEFAULTS = { "penalty_bps_per_100": 15.0, "max_turnover": 0.25 }
 
-FRONTIER_N = 7  # number of target-return grid points for the frontier (was 12)
+# default number of target-return grid points for the frontier
+FRONTIER_N = 12
 
 # Scenario calibration (monthly, conservative start points)
 # Rates shocks are bp 99% approx; spreads are widenings in bp at p99
@@ -1182,6 +1183,11 @@ tab_overview, tab_fund = st.tabs(["Overview (Compare Funds)", "Fund Detail"])
 # Controls (global)
 with st.sidebar:
     st.header("Global Settings")
+    
+    # Cache clear helper for testing
+    if st.button("Force clear cache"):
+        st.cache_data.clear()
+        st.experimental_rerun()
     seed = st.number_input(
         "Random seed", min_value=0, value=42, step=1,
         help="Sets the random-number seed so results are reproducible." +
