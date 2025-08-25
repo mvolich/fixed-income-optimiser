@@ -796,51 +796,83 @@ def heatmap_funds_losses(fund_results: dict):
     fig.update_layout(height=300, margin=dict(l=10,r=10,t=40,b=20))
     return fig
 
-def build_frontier_points(df, tags, mu_dec, pnl_matrix, fund, base_params, ret_grid):
+def _compute_metrics_from_w(df, mu, pnl_matrix, w):
+    port_pnl = pnl_matrix @ w
+    var99, cvar99 = var_cvar_from_pnl(port_pnl, 0.99)
+    er_dec = float(mu @ w)          # annual (decimal)
+    yld    = float(df["Yield_Hedged_Pct"].values @ w)
+    oad    = float(df["OAD_Years"].values @ w)
+    return {
+        "status": "OPTIMAL",
+        "ExpRet_pct": er_dec * 100.0,
+        "Yield_pct": yld,
+        "OAD_years": oad,
+        "VaR99_1M": var99,
+        "CVaR99_1M": cvar99,
+        "weights": w,
+    }
+
+def build_frontier_points(df, tags, mu, pnl_matrix, fund, factor_budgets, cvar_cap, 
+                          er_star_dec=None, n=12, pad=0.0025):
     """
-    Compute efficient frontier by solving Min-CVaR for a grid of target returns.
-    Returns a DataFrame with columns: ['target_ret_dec','exp_ret_pct','var_pct','cvar_pct'].
+    Build Min‑CVaR frontier across a grid of target returns.
+    Grid is widened to include the current star return (er_star_dec).
+    Returns: (df_pts, w_list) with columns ['er_pct','var_pct','cvar_pct'].
     """
-    import numpy as np
-    rows = []
-    for tr in ret_grid:
-        params = dict(base_params)  # copy
-        params["objective"] = "Min VaR for Target Return"
-        params["target_return"] = float(tr)          # mu_dec is decimal
-        params["cvar_cap"] = 1.0                     # effectively non‑binding so the solver traces the frontier
-        w_f, m_f = solve_portfolio(df, tags, mu_dec, pnl_matrix, fund, params, prev_w=None)
+    # Base range from asset-level expected returns
+    mu_assets = np.asarray(mu)
+    lo = float(np.percentile(mu_assets, 20))
+    hi = float(np.percentile(mu_assets, 95))
+    if er_star_dec is not None:
+        lo = min(lo, er_star_dec - pad)
+        hi = max(hi, er_star_dec + pad)
+    targets = np.linspace(lo, hi, n)
+
+    rows, w_list = [], []
+    for t in targets:
+        params_f = {
+            "factor_budgets": factor_budgets,
+            "turnover_penalty": 0.0,             # frontier shouldn't mix in costs
+            "max_turnover": 1.0,                 # don't bind turnover on the frontier
+            "objective": "Min VaR for Target Return",
+            "cvar_cap": cvar_cap if cvar_cap is not None else 1.0,  # keep consistent with UI
+            "target_return": float(t),
+        }
+        w_f, m_f = solve_portfolio(df, tags, mu, pnl_matrix, fund, params_f, prev_w=None)
         if w_f is None:
             continue
+        # Recompute metrics to be safe
+        m = _compute_metrics_from_w(df, mu, pnl_matrix, w_f)
         rows.append({
-            "target_ret_dec": float(tr),
-            "exp_ret_pct":    float(m_f["ExpRet_pct"]),          # already in %
-            "var_pct":        float(m_f["VaR99_1M"] * 100.0),    # decimal -> %
-            "cvar_pct":       float(m_f["CVaR99_1M"] * 100.0)    # decimal -> %
+            "er_pct":   m["ExpRet_pct"],
+            "var_pct":  m["VaR99_1M"]  * 100.0,
+            "cvar_pct": m["CVaR99_1M"] * 100.0,
         })
-    return pd.DataFrame(rows)
+        w_list.append(w_f)
 
-def efficient_frontier_chart(df_pts, current_metrics, fund_label="Fund"):
-    """
-    Plot: x = CVaR99 1M (%), y = Expected Return (ann., %).
-    Frontier shown as a line with markers; current solution as a star.
-    """
+    df_pts = pd.DataFrame(rows)
+    if not df_pts.empty:
+        df_pts = df_pts.sort_values("cvar_pct").reset_index(drop=True)
+    return df_pts, w_list
+
+def efficient_frontier_chart(df_pts, star_metrics, fund_label="current"):
     fig = go.Figure()
-    if (df_pts is not None) and (len(df_pts) > 0):
+    if df_pts is not None and not df_pts.empty:
         fig.add_scatter(
-            x=df_pts["cvar_pct"], y=df_pts["exp_ret_pct"],
+            x=df_pts["cvar_pct"], y=df_pts["er_pct"],
             mode="lines+markers", name="Efficient frontier"
         )
-    # Current solution
+    # Star (always plotted in CVaR space)
     fig.add_scatter(
-        x=[current_metrics["CVaR99_1M"] * 100.0],
-        y=[current_metrics["ExpRet_pct"]],
-        mode="markers", name=f"{fund_label} (current)",
+        x=[star_metrics["CVaR99_1M"] * 100.0],
+        y=[star_metrics["ExpRet_pct"]],
+        mode="markers", name=f"{fund_label}",
         marker=dict(size=12, symbol="star")
     )
     fig.update_layout(
-        height=360, margin=dict(l=10, r=10, t=40, b=40),
         xaxis_title="CVaR99 1M (risk, %)",
-        yaxis_title="Expected Return (ann., %)"
+        yaxis_title="Expected Return (ann., %)",
+        height=360, margin=dict(l=10,r=10,t=40,b=40)
     )
     return apply_theme(fig)
 
@@ -1267,20 +1299,52 @@ mu = mu_percent / 100.0
 
 # Helper: run optimisation for a single fund
 def run_fund(fund: str, objective: str, var_cap_override: float | None = None, prev_w=None):
-    params = {
-        "factor_budgets": {
-            "limit_krd10y": limit_krd10y, "limit_twist": limit_twist,
-            "limit_sdv01_ig": limit_sdv01_ig, "limit_sdv01_hy": limit_sdv01_hy
-        },
-        "turnover_penalty": penalty_bps,
-        "max_turnover": max_turn,
-        "objective": objective,
-        # CVaR cap set slightly above VaR cap (iteratively tightened via UI changes)
-        "cvar_cap": (var_cap_override if var_cap_override is not None else VAR99_CAP[fund] * 1.15),
-    }
-    w, metrics = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params, prev_w)
-    if w is None:
-        return None, metrics, None
+    # Params common to all calls
+    fb = {"limit_krd10y": limit_krd10y, "limit_twist": limit_twist,
+          "limit_sdv01_ig": limit_sdv01_ig, "limit_sdv01_hy": limit_sdv01_hy}
+    cvar_cap = (var_cap_override if var_cap_override is not None else VAR99_CAP[fund] * 1.15)
+
+    # For non-Sharpe objectives, keep the existing single-solve path
+    if objective in ("Max Return", "Min VaR for Target Return", "Max Drawdown Proxy"):
+        params = {
+            "factor_budgets": fb,
+            "turnover_penalty": penalty_bps,
+            "max_turnover": max_turn,
+            "objective": objective,
+            "cvar_cap": cvar_cap,
+        }
+        w, metrics = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params, prev_w)
+        if w is None:
+            return None, metrics, None
+        port_pnl = pnl_matrix_assets @ w
+        return w, metrics, port_pnl
+
+    # --- Max Sharpe: pick tangency point on the CVaR frontier ---
+    # 1) Build a frontier that includes the eventual star's return
+    #    (first get a provisional star from Max Return under the same cap)
+    params_tmp = {"factor_budgets": fb, "turnover_penalty": penalty_bps,
+                  "max_turnover": max_turn, "objective": "Max Return", "cvar_cap": cvar_cap}
+    w_tmp, m_tmp = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params_tmp, prev_w)
+    er_star_dec = float(mu @ w_tmp) if w_tmp is not None else None
+
+    df_pts, w_list = build_frontier_points(
+        df, tags, mu, pnl_matrix_assets, fund, fb, cvar_cap, er_star_dec=er_star_dec, n=12
+    )
+    if df_pts is None or df_pts.empty:
+        # Fallback to existing path if frontier failed
+        params_fallback = {"factor_budgets": fb, "turnover_penalty": penalty_bps,
+                           "max_turnover": max_turn, "objective": "Max Return", "cvar_cap": cvar_cap}
+        w_fb, m_fb = solve_portfolio(df, tags, mu, pnl_matrix_assets, fund, params_fallback, prev_w)
+        port_pnl = pnl_matrix_assets @ w_fb
+        return w_fb, m_fb, port_pnl
+
+    # 2) Choose tangency: maximise (ER_monthly / CVaR_monthly)
+    #    df_pts columns are in %, convert to decimals. ER is annual → monthly to match CVaR units.
+    er_m = (df_pts["er_pct"].values / 100.0) / 12.0
+    cvar_m = (df_pts["cvar_pct"].values / 100.0)
+    idx = int(np.argmax(er_m / np.maximum(cvar_m, 1e-8)))
+    w = w_list[idx]
+    metrics = _compute_metrics_from_w(df, mu, pnl_matrix_assets, w)
     port_pnl = pnl_matrix_assets @ w
     return w, metrics, port_pnl
 
@@ -1492,29 +1556,15 @@ with tab_fund:
         st.caption(f"VaR99 1M: {var99*100:.2f}% (cap {cap*100:.2f}%) {status}")
         st.caption(f"Roll‑down inclusion in expected return: {roll_incl_pct}%")
 
-        # --- Efficient frontier (added) ---
-        title_with_help(
-            "Efficient frontier (risk–return)",
-            "Computed by solving Min-CVaR for a grid of target returns under the current caps and budgets. "
-            "X-axis is CVaR99 1M (monthly, %). Y-axis is expected return (carry + 1Y roll, %)."
+        # --- Efficient frontier (risk–return) ---
+        title_with_help("Efficient frontier (risk–return)",
+                        "Line: Min‑CVaR frontier in CVaR space; Star: current portfolio under the selected objective.")
+        er_star_dec = metrics["ExpRet_pct"] / 100.0
+        df_pts, _ = build_frontier_points(
+            df, tags, mu_fund, pnl_matrix_assets, fund, fb_over, params["cvar_cap"], er_star_dec=er_star_dec, n=12
         )
-        # Build a sensible target-return grid from the cross-section of assets
-        # mu_fund is already in decimal and includes roll-down slider adjustment
-        ret_lo = float(np.percentile(mu_fund, 20))
-        ret_hi = float(np.percentile(mu_fund, 95))
-        ret_grid = np.linspace(ret_lo, ret_hi, 20)
-
-        base_params = {
-            "factor_budgets": fb_over,
-            "turnover_penalty": penalty_bps,
-            "max_turnover": max_turn,
-            # objective + target_return set inside build_frontier_points
-            "cvar_cap": 1.0  # non-binding for tracing the full frontier
-        }
-        df_frontier = build_frontier_points(df, tags, mu_fund, pnl_matrix_assets, fund, base_params, ret_grid)
-        fig_frontier = efficient_frontier_chart(df_frontier, metrics, fund_label=fund)
+        fig_frontier = efficient_frontier_chart(df_pts, metrics, fund_label=f"{fund} (current)")
         st.plotly_chart(fig_frontier, use_container_width=True, config=plotly_default_config)
-        # --- End Efficient frontier ---
 
         # Allocation
         title_with_help(f"{fund} – Allocation by Segment", "Weights per sleeve after optimisation under the current caps and budgets.")
